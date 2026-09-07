@@ -34,6 +34,7 @@ import { mailCommand } from "./commands/mail";
 import { backupCommand } from "./commands/backup";
 
 // Access & escape hatch
+import { jobCommand } from "./commands/job";
 import { tokenCommand } from "./commands/token";
 import { apiCommand } from "./commands/api";
 import { resetAdminCommand } from "./commands/reset-admin";
@@ -115,6 +116,7 @@ program.addCommand(backupCommand);
 
 // Access + escape hatch
 program.addCommand(tokenCommand);
+program.addCommand(jobCommand);
 program.addCommand(apiCommand);
 program.addCommand(resetAdminCommand);
 
