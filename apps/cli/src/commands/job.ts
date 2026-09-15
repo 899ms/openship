@@ -1,11 +1,8 @@
 import { Command, Option } from "commander";
 import { readFileSync } from "node:fs";
-import { apiRequest } from "../lib/api-client";
+import { getShipClient } from "../lib/ship-client";
 import { fail } from "../lib/cmd-helpers";
 import { isJsonMode, printJson, printTable, ok, err } from "../lib/output";
-import { sseRequest } from "../lib/sse";
-
-type Row = Record<string, unknown>;
 
 function jobOptions(command: Command): Command {
   return command
@@ -28,10 +25,8 @@ async function saveJob(opts: Record<string, string | boolean>, key?: string): Pr
       if (opts[flag] !== undefined) body[field] = opts[flag];
     }
     if (opts.server !== undefined) body.serverIds = [opts.server];
-    const { data } = await apiRequest<{ data: Row }>(
-      key === undefined ? "/jobs" : `/jobs/${encodeURIComponent(key)}`,
-      { method: key === undefined ? "POST" : "PATCH", body: JSON.stringify(body) },
-    );
+    const jobs = getShipClient().jobs;
+    const data = await (key === undefined ? jobs.create(body) : jobs.update(key, body));
     printJson(data);
   } catch (e) {
     fail(e);
@@ -39,7 +34,7 @@ async function saveJob(opts: Record<string, string | boolean>, key?: string): Pr
 }
 
 async function followRun(runId: string): Promise<void> {
-  for await (const event of sseRequest(`/jobs/runs/${encodeURIComponent(runId)}/stream`)) {
+  for await (const event of getShipClient().jobs.streamRun(runId)) {
     const data = JSON.parse(event.data);
     if (isJsonMode()) printJson(data);
     else if (data.type === "snapshot" && data.run.output) process.stdout.write(data.run.output + "\n");
@@ -63,7 +58,7 @@ jobCommand.command("list")
   .description("List system and custom jobs")
   .action(async () => {
     try {
-      const { data } = await apiRequest<{ data: Row[] }>("/jobs");
+      const data = await getShipClient().jobs.list();
       printTable(data, ["key", "label", "kind", "enabled", "scheduleType", "cronExpression", "nextRunAt"]);
     } catch (e) {
       fail(e);
@@ -74,7 +69,7 @@ jobCommand.command("get <key>")
   .description("Show a job's configuration and recent runs")
   .action(async (key: string) => {
     try {
-      const { data } = await apiRequest<{ data: Row }>(`/jobs/${encodeURIComponent(key)}`);
+      const data = await getShipClient().jobs.get(key);
       printJson(data);
     } catch (e) {
       fail(e);
@@ -95,7 +90,7 @@ jobCommand.command("delete <key>")
   .requiredOption("-y, --yes", "Confirm deletion")
   .action(async (key: string) => {
     try {
-      const result = await apiRequest<{ success: boolean }>(`/jobs/${encodeURIComponent(key)}`, { method: "DELETE" });
+      const result = await getShipClient().jobs.remove(key);
       if (isJsonMode()) printJson(result);
       else ok(`Deleted ${key}`);
     } catch (e) {
@@ -108,9 +103,7 @@ jobCommand.command("run <key>")
   .option("-f, --follow", "Stream the custom run until completion")
   .action(async (key: string, opts) => {
     try {
-      const { data } = await apiRequest<{ data: { key: string; runId?: string; summary?: Row } }>(
-        `/jobs/${encodeURIComponent(key)}/run`, { method: "POST" },
-      );
+      const data = await getShipClient().jobs.run(key);
       printJson(data);
       if (opts.follow && data.runId) await followRun(data.runId);
     } catch (e) {
@@ -123,8 +116,7 @@ jobCommand.command("runs <key>")
   .option("--limit <n>", "Maximum number of runs (default 50)")
   .action(async (key: string, opts) => {
     try {
-      const query = opts.limit ? `?${new URLSearchParams({ limit: opts.limit })}` : "";
-      const { data } = await apiRequest<{ data: Row[] }>(`/jobs/${encodeURIComponent(key)}/runs${query}`);
+      const data = await getShipClient().jobs.listRuns(key, opts.limit ? { limit: Number(opts.limit) } : undefined);
       printTable(data, ["id", "trigger", "status", "startedAt", "durationMs", "error"]);
     } catch (e) {
       fail(e);
@@ -140,9 +132,7 @@ jobCommand.command("logs <runId>")
         await followRun(runId);
         return;
       }
-      const { data } = await apiRequest<{ data: { output: string | null; error: string | null } }>(
-        `/jobs/runs/${encodeURIComponent(runId)}`,
-      );
+      const data = await getShipClient().jobs.getRun(runId);
       if (isJsonMode()) printJson(data);
       else {
         if (data.output) process.stdout.write(data.output + "\n");
