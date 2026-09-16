@@ -1,3 +1,4 @@
+import { createEncryption } from "@repo/db/encryption";
 import { describe, expect, it, beforeEach, vi } from "vitest";
 
 import { createDeploymentRepo } from "../../../../../packages/db/src/repos/deployment.repo";
@@ -169,6 +170,19 @@ beforeEach(() => {
 });
 
 describe("lifecycle: a rejected log payload cannot invert the outcome", () => {
+  it("activates a successful preview on its own project row (#195)", async () => {
+    const ctx = ctxFor();
+    ctx.project.id = "project-preview";
+    ctx.project.environmentType = "preview";
+    ctx.dep.projectId = "project-preview";
+    ctx.dep.environment = "preview";
+
+    await onSuccess(ctx, { containerId: "preview-container", durationMs: 1 });
+
+    expect(h.activePointer).toEqual(["project-preview:dep_1"]);
+    expect(statusPairs()).toEqual(["dep_1:ready"]);
+  });
+
   it("onSuccess still reports ready when finishBuildSession throws", async () => {
     h.finishError = new Error(
       'Failed query: update "build_session" set "status" = $1, "logs" = $2 …',
@@ -437,7 +451,7 @@ describe("repo: finishBuildSession sheds the payload, never the status", () => {
         }),
       }),
     };
-    return { writes, repo: createDeploymentRepo(db as never) };
+    return { writes, repo: createDeploymentRepo(db as never, createEncryption("repository-test-secret")) };
   }
 
   it("retries with a marker payload and keeps status + duration", async () => {

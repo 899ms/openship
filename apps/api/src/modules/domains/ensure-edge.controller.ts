@@ -12,6 +12,7 @@
  * must not be recreated.
  */
 
+import { findActiveDeployment } from "@repo/platform/engine/lib/active-deployment";
 import type { Context } from "hono";
 import { repos } from "@repo/db";
 import { safeErrorMessage } from "@repo/core";
@@ -38,6 +39,7 @@ import { resolveAcmeProviderOptions } from "@repo/platform/engine/lib/acme-confi
 import { withLiveProjectRuntimeMutation } from "@repo/platform/engine/lib/project-runtime-lock";
 import { applyProjectRouting } from "@repo/platform/engine/modules/domains/routing-apply.service";
 import { reapplyProjectLiveRoutes } from "@repo/platform/engine/modules/domains/project-route.service";
+import { canRouteSelfApp } from "@repo/platform/engine/lib/self-app-routing";
 import { resolveProjectLiveDeployTarget } from "@repo/platform/engine/modules/projects/project-deploy-target";
 import { findLocalServer } from "@repo/platform/engine/lib/startup/self-server";
 import {
@@ -259,13 +261,14 @@ export async function ensureEdgeStream(c: Context) {
       });
 
       appendEdgeLog(session.id, "Edge ready — applying routes…");
+      let routeWarnings = false;
       const routesApplied = await withLiveProjectRuntimeMutation(id, async (liveProject) => {
         // The consent/install phase can take minutes. Resolve the live target again
         // only after taking the teardown lock: a redeploy may have moved the project,
         // and DELETE may have claimed it while the operator was answering the prompt.
         const liveTarget = await resolveProjectServer(id, ctx.organizationId);
         if ("error" in liveTarget) throw new Error(liveTarget.error);
-        const dep = await repos.deployment.findById(liveProject.activeDeploymentId!);
+        const dep = await findActiveDeployment(liveProject);
         if (!dep) throw new Error("The active deployment no longer exists");
 
         // Prepare the serving box to answer the managed-edge target check and
@@ -287,20 +290,34 @@ export async function ensureEdgeStream(c: Context) {
         // The shared runtime lock remains held even when either best-effort write
         // times out or fails, so deletion cannot finish and then have this callback
         // recreate a route for a project that no longer exists.
+        const onWarning = (message: string) => {
+          routeWarnings = true;
+          appendEdgeLog(session.id, message, "warn");
+        };
         await reapplyProjectLiveRoutes(liveProject, [], {
           managedEdgeSyncedByCaller: true,
-        }).catch((e) =>
-          appendEdgeLog(session.id, `Route apply warning: ${safeErrorMessage(e)}`, "warn"),
-        );
-        await applyProjectRouting(id).catch((e) =>
-          appendEdgeLog(session.id, `Route apply warning: ${safeErrorMessage(e)}`, "warn"),
-        );
+          isSelfApp: await canRouteSelfApp(ctx, id),
+          onWarning,
+        }).catch((e) => {
+          routeWarnings = true;
+          appendEdgeLog(session.id, `Route apply warning: ${safeErrorMessage(e)}`, "warn");
+        });
+        await applyProjectRouting(id, { onWarning }).catch((e) => {
+          routeWarnings = true;
+          appendEdgeLog(session.id, `Route apply warning: ${safeErrorMessage(e)}`, "warn");
+        });
         return true;
       });
       if (!routesApplied) {
         throw new Error("The project was deleted while edge setup was in progress");
       }
-      appendEdgeLog(session.id, "Done — routes are live.");
+      appendEdgeLog(
+        session.id,
+        routeWarnings
+          ? "Edge setup finished with route warnings. Review the messages above."
+          : "Edge setup and route application finished.",
+        routeWarnings ? "warn" : "info",
+      );
       finishEdgeConsentSession(session.id, "completed");
     } catch (err) {
       appendEdgeLog(session.id, safeErrorMessage(err), "error");

@@ -2,6 +2,7 @@
  * Project CRUD service - create, read, update, list, ensure.
  */
 
+import { activeDeploymentForProject, findActiveDeployment, listActiveServiceDeployments } from "@repo/platform/engine/lib/active-deployment";
 import {
   repos,
   type Deployment,
@@ -53,7 +54,7 @@ import { assertResourceInOrg } from "../../lib/resource-access";
 import type { ExecutionContext as RequestContext } from "@repo/platform";
 import {
   resolveDefaultBranch,
-  listBranches as listGitHubBranches,
+  getBranch,
   compareCommits,
   getLatestCommit,
   getWebhookStrategy,
@@ -76,6 +77,7 @@ import {
 import { applyProjectRouting } from "../domains/routing-apply.service";
 import { syncProjectManagedEdge } from "./project-runtime.service";
 import { normalizeStoredPublicEndpoints, publicEndpointHostname } from "../../lib/public-endpoints";
+import { resolveDeploymentEnvironment } from "../deployments/deployment-environment";
 import { assertFreeEndpointsAllowed } from "../../lib/free-domain-guard";
 import { currentPlanTier, planProjectLimit, PlanUpgradeRequiredError } from "../../lib/plan-guard";
 import { assertValidCustomDomains, customHostnamesOf } from "../../lib/custom-domain-guard";
@@ -260,7 +262,7 @@ export async function enrichProject(p: Project) {
 
   let activeDep: Deployment | null = null;
   if (p.activeDeploymentId) {
-    activeDep = (await repos.deployment.findById(p.activeDeploymentId)) ?? null;
+    activeDep = (await findActiveDeployment(p)) ?? null;
   }
   const { deployTarget, serverId } = readDeployMeta(p, activeDep);
   let serverName: string | null = null;
@@ -317,7 +319,9 @@ export async function enrichProjectsBatch(
     .catch(() => new Map<string, Deployment>());
 
   const serverIds = new Set<string>();
-  for (const d of deployments.values()) {
+  for (const project of projects) {
+    const d = project.activeDeploymentId ? activeDeploymentForProject(project, deployments.get(project.activeDeploymentId)) : undefined;
+    if (!d) continue;
     const meta = d.meta as { serverId?: string } | null;
     if (meta?.serverId) serverIds.add(meta.serverId);
   }
@@ -341,7 +345,7 @@ export async function enrichProjectsBatch(
 
     let activeDep: Deployment | null = null;
     if (p.activeDeploymentId) {
-      activeDep = deployments.get(p.activeDeploymentId) ?? null;
+      activeDep = activeDeploymentForProject(p, deployments.get(p.activeDeploymentId)) ?? null;
     }
     const { deployTarget, serverId } = readDeployMeta(p, activeDep);
     let serverName: string | null = null;
@@ -864,6 +868,14 @@ async function createProductionProject(
   organizationId: string,
   access?: { tokenId: string },
 ) {
+  // The project type is derived from persisted service rows. Accepting an
+  // explicit monorepo without app metadata creates a different project from
+  // the one requested (including CLI --type monorepo). Reject before writes.
+  if (data.projectType === "monorepo" && !data.monorepoApps?.length) {
+    throw new ValidationError(
+      "A monorepo project requires detected app metadata (monorepoApps). Scan/import the workspace first, or create separate projects for independently managed processes.",
+    );
+  }
   // A server id is a host-root capability, not an arbitrary foreign key. Verify
   // it through the same org-scoped repository used by deployment preflight,
   // and do it before ensureProjectApp writes anything so a rejected binding is
@@ -1414,6 +1426,18 @@ export async function ensureProject(data: EnsureProjectBody, organizationId: str
   if (!project && desiredSlug !== nameSlug) {
     project = await findProjectByAppSlug(organizationId, desiredSlug, data.gitBranch);
   }
+  if (project && project.organizationId !== organizationId) {
+    throw new NotFoundError("Project", data.projectId ?? desiredSlug);
+  }
+  if (data.deploymentEnvironment !== undefined) {
+    // Source deployments ensure config before asking for build access. Reject a
+    // preview aimed at production here too, before overwriting services/config
+    // or leaving a newly created production project behind after the refusal.
+    resolveDeploymentEnvironment(
+      project ?? { id: desiredSlug, environmentType: "production" },
+      data.deploymentEnvironment,
+    );
+  }
   let created = false;
 
   if (!project) {
@@ -1423,13 +1447,6 @@ export async function ensureProject(data: EnsureProjectBody, organizationId: str
     project = await createProductionProject(data, desiredSlug, organizationId);
     created = true;
   } else {
-    // Defensive: if we matched an existing project but its org_id doesn't
-    // match the caller's active org, refuse. The auto-switch middleware
-    // should have made these match before we get here, but the bare
-    // ensure path can be called from edge code paths (CLI, deploy hooks).
-    if (project.organizationId !== organizationId) {
-      throw new NotFoundError("Project", data.projectId ?? desiredSlug);
-    }
     const update: Record<string, unknown> = {};
     if (data.framework !== undefined) update.framework = normalizeFramework(data.framework);
     if (data.packageManager !== undefined) update.packageManager = data.packageManager;
@@ -1967,9 +1984,8 @@ export async function createProjectEnvironment(
     (environmentType === "production" ? (productionBranch ?? "main") : environmentSlug);
 
   if ((data.sourceMode ?? "branch") === "branch" && base.gitOwner && base.gitRepo && gitBranch) {
-    const branches = await listGitHubBranches(ctx, base.gitOwner, base.gitRepo);
-    const exists = branches.some((branch) => branch.name === gitBranch);
-    if (!exists) {
+    const branch = await getBranch(ctx, base.gitOwner, base.gitRepo, gitBranch);
+    if (!branch) {
       throw new ValidationError(
         `Branch "${gitBranch}" was not found for ${base.gitOwner}/${base.gitRepo}`,
       );
@@ -2160,6 +2176,24 @@ export function releaseSourceKey(p: Project): string {
   ].join("|");
 }
 
+/** An unanswered poll, without doing more I/O on an already stalled source. */
+export function unresolvedUpstreamDrift(p: Project): UpstreamDrift {
+  const mode = driftMode(p);
+  if (mode === "commit") {
+    return { supported: true, mode, key: commitSourceKey(p), latestSha: null, latestMessage: null };
+  }
+  if (mode === "release") {
+    return {
+      supported: true,
+      mode,
+      key: releaseSourceKey(p),
+      latestVersion: null,
+      pinned: Boolean(p.releaseSource?.pinnedVersion),
+    };
+  }
+  return { supported: true, mode, digestByRef: {} };
+}
+
 /** Image services whose upstream digest is worth resolving (image-only, enabled). */
 async function imageServicesOf(p: Project) {
   const services = await repos.service.listByProject(p.id).catch(() => []);
@@ -2191,6 +2225,10 @@ export async function upstreamMatchesSource(p: Project, u: UpstreamDrift): Promi
   if (!u.supported || u.mode !== driftMode(p)) return false;
   if (u.mode === "commit") return u.key === commitSourceKey(p);
   if (u.mode === "release") return u.key === releaseSourceKey(p);
+  // A watchdog can expire before even the local service read completes. An
+  // empty map asserts no version for ANY ref; reuse that unknown answer only
+  // for the short failed-poll backoff, rather than retrying on every page load.
+  if (Object.keys(u.digestByRef).length === 0) return true;
   const services = await imageServicesOf(p);
   if (services.length === 0) return false;
   // Every current ref must have been polled — a service added or retagged since
@@ -2285,7 +2323,7 @@ export async function resolveDeployedDrift(
   if (mode === "commit") {
     let deployedSha: string | null = null;
     if (p.activeDeploymentId) {
-      const dep = await repos.deployment.findById(p.activeDeploymentId).catch(() => null);
+      const dep = await findActiveDeployment(p).catch(() => null);
       deployedSha = dep?.commitSha ?? null;
     }
     return { mode: "commit", deployedSha };
@@ -2299,7 +2337,7 @@ export async function resolveDeployedDrift(
     }
     let currentVersion: string | null = null;
     if (p.activeDeploymentId) {
-      const dep = await repos.deployment.findById(p.activeDeploymentId).catch(() => null);
+      const dep = await findActiveDeployment(p).catch(() => null);
       currentVersion = dep?.releaseVersion ?? null;
     }
     if (!currentVersion && p.appTemplateId === "openship") currentVersion = readApiVersion();
@@ -2308,7 +2346,7 @@ export async function resolveDeployedDrift(
 
   const deployedByService = new Map<string, { ref?: string; digest?: string }>();
   if (p.activeDeploymentId) {
-    const sds = await repos.service.listByDeployment(p.activeDeploymentId).catch(() => []);
+    const sds = await listActiveServiceDeployments(p).catch(() => []);
     for (const sd of sds) {
       deployedByService.set(sd.serviceId, {
         digest: sd.imageDigest ?? undefined,
@@ -2552,6 +2590,12 @@ export async function updateOptions(
   assertResourceInOrg(p, "Project", organizationId, projectId);
 
   const update: Record<string, unknown> = {};
+  if (options.gitBranch !== undefined) {
+    if (typeof options.gitBranch !== "string" || !options.gitBranch.trim() || options.gitBranch.length > 200) {
+      throw new ValidationError("gitBranch must be a non-empty branch name of at most 200 characters");
+    }
+    update.gitBranch = options.gitBranch.trim();
+  }
   if (options.buildCommand !== undefined) update.buildCommand = options.buildCommand;
   if (options.installCommand !== undefined) update.installCommand = options.installCommand;
   if (options.outputDirectory !== undefined) update.outputDirectory = options.outputDirectory;
@@ -2641,11 +2685,12 @@ export async function getLatestDeploymentSession(projectId: string, organization
   const p = await repos.project.findById(projectId);
   assertResourceInOrg(p, "Project", organizationId, projectId);
 
-  if (!p.activeDeploymentId) {
+  const active = await findActiveDeployment(p);
+  if (!active) {
     return { session: null };
   }
 
-  const session = await repos.deployment.findBuildSessionByDeploymentId(p.activeDeploymentId);
+  const session = await repos.deployment.findBuildSessionByDeploymentId(active.id);
   return {
     session: session
       ? {

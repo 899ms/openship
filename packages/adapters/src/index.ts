@@ -171,6 +171,9 @@ export {
 // ─── Infrastructure layer ────────────────────────────────────────────────────
 export type { RoutingProvider, SslProvider, ProvisionCertOptions } from "./infra/types";
 export { NginxProvider, type NginxProviderOptions, type RateLimitConfig } from "./infra/nginx";
+// For the upstream-down e2e in apps/api: it asserts on the real marker rather than a copy of
+// the string, which could drift from the page it is checking for.
+export { EDGE_UPSTREAM_DOWN_SENTINEL } from "./infra/edge-upstream-down";
 export {
   compileVercelRouting,
   sourceToLocation,
@@ -214,6 +217,11 @@ export {
   MAIL_DB_USER,
   MAIL_DB_HOST_BIND,
   MAIL_DB_PORT,
+  MAIL_DB_DEFAULT_PORT,
+  MAIL_DB_FALLBACK_PORT,
+  MAIL_DB_PORT_RANGE_MAX,
+  MAIL_DB_INTERNAL_PORT,
+  resolveMailDbPort,
   type MailMount,
 } from "./infra/mail-container";
 
@@ -284,6 +292,9 @@ export {
   detectMailContainer,
   verifyMailEngine,
   buildMailRunCommand,
+  buildDbRunCommand,
+  retainedDbPort,
+  findAvailableMailDbPort,
   MAIL_DB_IMAGE,
   type ContainerMailOptions,
   type ContainerMailResult,
@@ -372,6 +383,7 @@ export { elevatedExecutor, elevateCommand } from "./system/elevated-executor";
 export type { Privileged, RootChecked } from "./system/privilege";
 export { privilegedExecutor, rootChecked, rootOrDegrade } from "./system/privilege";
 export { systemCatalog, MIN_DOCKER_VERSION } from "./system/catalog";
+export { SERVER_STATS_COMMAND } from "./system/server-stats";
 // Native-module versioning + migration framework (verify → reconcile).
 export {
   resolveVerifiedCatalog,
@@ -488,6 +500,7 @@ export {
   checkAll as checkAllComponents,
   checkComponents,
   checkDocker,
+  needsDockerGroupRefresh,
   checkGit,
   checkEdge,
   COMPONENT_CHECKS,

@@ -72,6 +72,7 @@ vi.mock("@repo/db", () => ({
     deployment: {
       findById: async () => ({
         id: "dep_1",
+        projectId: "proj_1",
         organizationId: "org_1",
         containerId: h.containerId,
         status: "ready",
@@ -364,7 +365,9 @@ describe("project pause / resume", () => {
     h.reapplyLiveRoutes.mockRejectedValue(new Error("EHOSTUNREACH"));
     const { enableProject } = await load();
 
-    await expect(enableProject("proj_1", "org_1")).rejects.toThrow(/re-apply/i);
+    // Route repair preserves the cause for the operator (#879), including when
+    // reached through resume. A failed re-apply must still leave it paused.
+    await expect(enableProject("proj_1", "org_1")).rejects.toThrow(/EHOSTUNREACH/);
     expect(h.project.disabledAt).toBeInstanceOf(Date);
   });
 

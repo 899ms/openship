@@ -1,5 +1,6 @@
+import { findActiveDeployment } from "@repo/platform/engine/lib/active-deployment";
 import { repos, type Domain, type Project } from "@repo/db";
-import { safeErrorMessage } from "@repo/core";
+import { resolveWorkload, safeErrorMessage } from "@repo/core";
 import { edgeProxyFor, resolveServedStaticPath } from "@repo/adapters";
 import { compileProjectRoutingFields } from "../../lib/project-routing-fields";
 import {
@@ -18,7 +19,8 @@ import {
   describeCandidatePorts,
   resolveProjectServiceUpstream,
 } from "../../lib/project-service-upstream";
-import { isRealContainerRef } from "../../lib/container-ref";
+import { isArtifactRef, isRealContainerRef } from "../../lib/container-ref";
+import { resolveServicePort } from "../../lib/deployable-service";
 import { deregisterManagedEdgeRoutes, syncManagedEdgeRoutes } from "../../lib/managed-edge-proxy";
 import { syncProjectPublicRoutes } from "../../lib/project-route-store";
 import { resolveRouteRedirect } from "../../lib/domain-redirect";
@@ -36,6 +38,7 @@ import {
   type RouteRemove,
 } from "../../lib/route-apply.service";
 import { observedLoopbackPublishFromUrl } from "../deployments/observed-host-port-claims";
+import { env } from "../../config/env";
 
 type ProjectRouteProject = Pick<Project, "id" | "slug">;
 type RouteStateProject = Pick<Project, "slug">;
@@ -278,12 +281,16 @@ export interface ReapplyProjectLiveRoutesOptions {
   /**
    * The self-app (control plane) project legitimately routes its public
    * hostname to its OWN dashboard port on loopback — that's the whole point
-   * of self-deploy.ts. Only self-deploy.ts's own call sites may pass this;
-   * it must never be derived from `project.appTemplateId`, which is
+   * of self-deploy.ts. Startup may pass this directly; request handlers must
+   * first authorize with `canRouteSelfApp`. It must never be derived only from
+   * `project.appTemplateId`, which is
    * client-writable via the ordinary create/update project APIs and would
    * let any project forge its way past the reserved-port guard.
    */
   isSelfApp?: boolean;
+
+  /** Report skipped routes to a repair action as well as the server log. */
+  onWarning?: (message: string) => void;
 
   /**
    * The caller runs its own managed-edge (`*.opsh.io`) sync, so skip the one below.
@@ -317,7 +324,8 @@ export function shouldRefuseLoopbackRoute(
   port: number,
   opts: ReapplyProjectLiveRoutesOptions = {},
 ): boolean {
-  return isLoopbackHost(host) && isReservedLoopbackPort(port) && !opts.isSelfApp;
+  const ownDashboard = opts.isSelfApp && port === (env.OPENSHIP_DASHBOARD_PORT || 3001);
+  return isLoopbackHost(host) && isReservedLoopbackPort(port) && !ownDashboard;
 }
 
 export async function reapplyProjectLiveRoutes(
@@ -345,6 +353,10 @@ export async function reapplyProjectLiveRoutes(
   previousHostnames: string[],
   opts: ReapplyProjectLiveRoutesOptions = {},
 ): Promise<void> {
+  const warn = (message: string) => {
+    console.warn(message);
+    opts.onWarning?.(message);
+  };
   const isCloud = !!project.cloudWorkspaceId;
   if (!isCloud && !project.activeDeploymentId) return;
 
@@ -357,7 +369,12 @@ export async function reapplyProjectLiveRoutes(
     { id: project.id, slug: project.slug },
     { projectDomains: allDomainRows },
   );
-  const current = normalizeProjectRouteRows(state.projectDomains);
+  // The self-app's dashboard may already own its domain and durable port claim.
+  // Its ordinary service applier intentionally does not manage control-plane
+  // containers, so the explicitly authorized self-app path covers that row too.
+  const current = opts.isSelfApp
+    ? [...allDomainRows].sort(comparePublicRouteRows)
+    : normalizeProjectRouteRows(state.projectDomains);
   const currentHostnames = new Set(current.map((d) => d.hostname.toLowerCase()));
   // domainType isn't retained for a dropped row — infer managed vs custom from
   // the base-domain suffix so cloud teardown targets the right primitive.
@@ -379,7 +396,7 @@ export async function reapplyProjectLiveRoutes(
         organizationId: project.organizationId,
       }).catch(() => null);
       if (result && result.failures.length > 0) {
-        console.warn(
+        warn(
           `[project-route] ${project.slug}: managed edge deregister failed for ${result.failures.join(", ")}`,
         );
       }
@@ -397,15 +414,15 @@ export async function reapplyProjectLiveRoutes(
         // legacy null `domainType` row still resolves the right cloud primitive.
         isCustomDomain: !managedHostnameToSlug(domain.hostname),
       }));
-    await reconcileProjectRoutes(project, { registers, removes });
+    await reconcileProjectRoutes(project, { registers, removes, onWarning: opts.onWarning });
     return;
   }
 
   // Self-hosted: resolve the deployment's routing + runtime ONCE (the same
   // resolver deploy/delete use), then compute each upstream from the container.
-  const deployment = await repos.deployment.findById(project.activeDeploymentId!);
+  const deployment = await findActiveDeployment(project);
   if (!deployment) {
-    console.warn(
+    warn(
       `[project-route] ${project.slug}: no active deployment row — skipping live route re-apply`,
     );
     return;
@@ -452,7 +469,7 @@ export async function reapplyProjectLiveRoutes(
         serverId: serverId ?? undefined,
       }).catch(() => null);
       if (result && result.failures.length > 0) {
-        console.warn(
+        warn(
           `[project-route] ${project.slug}: managed edge sync failed for ${result.failures.join(", ")}`,
         );
       }
@@ -481,8 +498,7 @@ export async function reapplyProjectLiveRoutes(
      * did before, and is skipped (never guessed onto a service) when there isn't one.
      */
     const liveRows = await repos.service.listByDeployment(deployment.id).catch(() => []);
-    const serviceDefs =
-      liveRows.length > 0 ? await repos.service.listByProject(project.id).catch(() => []) : [];
+    const serviceDefs = await repos.service.listByProject(project.id);
     const serviceUpstreams =
       serviceDefs.length > 0
         ? {
@@ -496,10 +512,11 @@ export async function reapplyProjectLiveRoutes(
       // No primary container AND no service with one either: there is genuinely
       // nothing to point a project-level route at. Still tear down any dropped
       // hostnames on the correct host.
-      console.warn(
+      warn(
         `[project-route] ${project.slug}: deployment ${deployment.id} has no containerId (target=${effectiveTarget}) — skipping single-app route registration`,
       );
       await reconcileProjectRoutes(project, {
+        onWarning: opts.onWarning,
         routing,
         hostPortTarget: resolved.hostPortTarget,
         ...(resolved.platform.executor
@@ -517,7 +534,7 @@ export async function reapplyProjectLiveRoutes(
       return;
     }
 
-    const resolveTargetUrl = async (port: number, hostname: string) => {
+    const resolveTargetUrl = async (port: number, hostname: string, serviceId?: string) => {
       const strategy = resolveRouteStrategy(project.routeStrategy);
       // The port's owning SERVICE first, then the release's own primary container.
       // Both are attempted rather than one or the other, so nothing that resolved
@@ -539,6 +556,9 @@ export async function reapplyProjectLiveRoutes(
           runtime,
           port,
           ...serviceUpstreams,
+          ...(serviceId
+            ? { services: serviceUpstreams.services.filter((service) => service.id === serviceId) }
+            : {}),
           requireLiveObservation: true,
         });
         if (serviceResolved) {
@@ -573,7 +593,7 @@ export async function reapplyProjectLiveRoutes(
         const offered = serviceUpstreams
           ? `, services offer ${describeCandidatePorts(serviceUpstreams)}`
           : "";
-        console.warn(
+        warn(
           `[project-route] ${project.slug}: could not resolve an upstream for ${hostname} on port ${port} ` +
             `(primary container ${primaryContainerId ?? "none"}${offered}, ` +
             `target=${effectiveTarget}, server=${serverId ?? "local"})`,
@@ -587,7 +607,7 @@ export async function reapplyProjectLiveRoutes(
       // exempt (see ReapplyProjectLiveRoutesOptions.isSelfApp).
       const m = url.match(/^https?:\/\/([^:/]+):(\d+)$/);
       if (m && shouldRefuseLoopbackRoute(m[1], Number(m[2]), opts)) {
-        console.warn(
+        warn(
           `[project-route] ${project.slug}: refusing reserved loopback upstream port ${m[2]} for a public route`,
         );
         return null;
@@ -597,13 +617,27 @@ export async function reapplyProjectLiveRoutes(
         serviceId: owner.serviceId,
         containerPort: owner.containerPort,
       });
-      return { url, observed };
+      return { url, observed, owner };
     };
 
     // Where a path-targeted (static) domain serves its files from — the SAME
     // resolver the post-deploy output probe uses, so the vhost and the check that
     // audits it can never disagree about the directory.
     const staticRootBase = resolveDeploymentStaticRoot(deployment, project);
+    // Some static uploads are served by an nginx container, not an extracted host
+    // directory. Their root route follows the recorded primary container's service;
+    // picking any service on port 80 could send it to an unrelated sibling (#879).
+    const staticContainerService =
+      resolveWorkload(project.workloadType, project.hasServer) === "static" &&
+      runtime.name === "docker" &&
+      primaryContainerId &&
+      !isArtifactRef(primaryContainerId)
+        ? serviceDefs.find(
+            (service) =>
+              service.enabled !== false &&
+              serviceUpstreams?.rowByService.get(service.id)?.containerId === primaryContainerId,
+          )
+        : undefined;
 
     // A redirect only goes live when its target is one of the hostnames this
     // project currently routes — see resolveRouteRedirect.
@@ -636,19 +670,10 @@ export async function reapplyProjectLiveRoutes(
         ...(redirectHost ? { redirectHost } : {}),
       };
 
-      // A domain targets a PORT (proxy to the app) or a PATH (serve files) —
-      // exactly one, same rule the deploy path enforces. `continue`-ing on
-      // targetPath is what left static projects unrouted here: adding a domain to
-      // one wrote no vhost at all, so the hostname fell through to
-      // default_server, while the deploy path (which does emit a static root)
-      // made the same domain work — so it only ever "broke" on edit.
-      if (domain.targetPath) {
-        if (!staticRootBase) {
-          console.warn(
-            `[project-route] ${project.slug}: no static root for ${domain.hostname} (path ${domain.targetPath}) — skipping`,
-          );
-          continue;
-        }
+      // Prefer a real host artifact for path targets. A container-served static
+      // root instead enters the same proxy/ownership checks as an explicit port.
+      // Filesystem subpaths cannot be treated as a container's HTTP root.
+      if (domain.targetPath && staticRootBase) {
         try {
           // Same call the deploy path's route registration and the output probe
           // make — one rule for "which directory does this path serve".
@@ -660,20 +685,46 @@ export async function reapplyProjectLiveRoutes(
         } catch (err) {
           // A `../` in the operator's route path. Refuse this ONE route; the rest of
           // the re-apply (and the project's other domains) must still go through.
-          console.warn(
+          warn(
             `[project-route] ${project.slug}: refusing ${domain.hostname} — ${safeErrorMessage(err)}`,
           );
         }
         continue;
       }
 
-      const port = domain.targetPort ?? project.port;
+      // A Compose project's legacy scalar port is not a declaration for this
+      // domain. It can be stale, or belong to a different service. Require the
+      // operator's mapped port rather than forwarding to an arbitrary sibling.
+      let port = domain.targetPort ?? (serviceUpstreams && !opts.isSelfApp ? null : project.port);
+      let targetServiceId: string | undefined;
+      if (domain.targetPath) {
+        if (domain.targetPath !== "/" || !staticContainerService) {
+          warn(
+            `[project-route] ${project.slug}: no static root for ${domain.hostname} (path ${domain.targetPath}) — skipping`,
+          );
+          continue;
+        }
+        port = resolveServicePort(staticContainerService);
+        targetServiceId = staticContainerService.id;
+      }
       if (!port) {
-        console.warn(`[project-route] ${project.slug}: no port for ${domain.hostname} — skipping`);
+        warn(
+          `[project-route] ${project.slug}: select a target port for ${domain.hostname} in Domains & Routes` +
+            (serviceUpstreams
+              ? `; services offer ${describeCandidatePorts(serviceUpstreams)}`
+              : "") +
+            " — route skipped",
+        );
         continue;
       }
-      const target = await resolveTargetUrl(port, domain.hostname);
+      const target = await resolveTargetUrl(port, domain.hostname, targetServiceId);
       if (!target) continue;
+      if (domain.serviceId && domain.serviceId !== target.owner.serviceId) {
+        warn(
+          `[project-route] ${project.slug}: ${domain.hostname} does not map to its owning service — route skipped`,
+        );
+        continue;
+      }
       registers.push({
         ...common,
         ...routingFields,
@@ -685,6 +736,7 @@ export async function reapplyProjectLiveRoutes(
     // The webhook-proxy location is re-attached automatically for the project's
     // webhookDomain inside reconcileProjectRoutes.
     await reconcileProjectRoutes(project, {
+      onWarning: opts.onWarning,
       routing,
       hostPortTarget: resolved.hostPortTarget,
       ...(resolved.platform.executor

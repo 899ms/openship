@@ -1,3 +1,5 @@
+import { createConfigurationSecrets } from "../configuration-secrets";
+import { createEncryption } from "../encryption";
 import { describe, expect, it } from "vitest";
 import {
   composeWritePatch,
@@ -7,6 +9,9 @@ import {
   toComposeSpec,
 } from "./service.repo";
 import type { Database } from "../client";
+
+const testEncryption = createEncryption("repository-test-secret");
+const configuration = createConfigurationSecrets(testEncryption);
 
 const multiRoute = [
   { port: 3210, domainType: "free" as const, domain: "acme-backend" },
@@ -81,13 +86,13 @@ describe("reconcileFromCompose keeps the route set", () => {
       query: { service: { findMany: async () => [{ ...existing, importedSpec }] } },
       update: () => ({
         set: (data: Record<string, unknown>) => {
-          writes.push(data);
+          writes.push(configuration.openService(data));
           return { where: async () => undefined };
         },
       }),
     } as unknown as Database;
 
-    await createServiceRepo(db).reconcileFromCompose("proj_1", [
+    await createServiceRepo(db, testEncryption).reconcileFromCompose("proj_1", [
       { name: "backend", image: "convex:2" },
     ]);
 
@@ -99,7 +104,7 @@ describe("reconcileFromCompose keeps the route set", () => {
 });
 
 describe("reconcileFromCompose bootstraps dynamic env provenance (#673)", () => {
-  it("restores raw expressions without overwriting an operator-edited value", async () => {
+  it("restores known expressions and preserves an ambiguous legacy value for review", async () => {
     const writes: Array<Record<string, unknown>> = [];
     const db = {
       query: {
@@ -123,13 +128,13 @@ describe("reconcileFromCompose bootstraps dynamic env provenance (#673)", () => 
       },
       update: () => ({
         set: (data: Record<string, unknown>) => {
-          writes.push(data);
+          writes.push(configuration.openService(data));
           return { where: async () => undefined };
         },
       }),
     } as unknown as Database;
 
-    await createServiceRepo(db).reconcileFromCompose("proj_1", [
+    await createServiceRepo(db, testEncryption).reconcileFromCompose("proj_1", [
       {
         name: "api",
         environment: {
@@ -155,8 +160,10 @@ describe("reconcileFromCompose bootstraps dynamic env provenance (#673)", () => 
     });
     expect(writes[0].advanced).toEqual({
       readiness: { enabled: true },
-      environmentTemplateKeys: ["POSTGRES_PASSWORD", "DATABASE_URL"],
+      environmentTemplateKeys: ["DATABASE_URL"],
     });
+    expect(writes[0].importedSpec).toBeNull();
+    expect(writes[0].driftSpec).toBeTruthy();
   });
 });
 
@@ -187,7 +194,7 @@ describe("legacy compose provenance baselines", () => {
     );
   });
 
-  it("advances only the baseline and preserves live operator values", async () => {
+  it("restores unchanged source expressions while preserving live operator edits", async () => {
     const writes: Array<Record<string, unknown>> = [];
     const db = {
       query: {
@@ -207,18 +214,21 @@ describe("legacy compose provenance baselines", () => {
       },
       update: () => ({
         set: (data: Record<string, unknown>) => {
-          writes.push(data);
+          writes.push(configuration.openService(data));
           return { where: async () => undefined };
         },
       }),
     } as unknown as Database;
 
-    const result = await createServiceRepo(db).reconcileFromCompose("proj_1", [parsedNow]);
+    const result = await createServiceRepo(db, testEncryption).reconcileFromCompose("proj_1", [parsedNow]);
 
     expect(result.driftedNames).toEqual([]);
     expect(writes).toHaveLength(1);
     expect(writes[0]).toMatchObject({ importedSpec: toComposeSpec(parsedNow), driftSpec: null });
-    expect(writes[0]).not.toHaveProperty("environment");
+    expect(writes[0].environment).toEqual({ PORT: "20011", NODE_ENV: "${NODE_ENV:-production}" });
+    expect(writes[0].advanced).toMatchObject({
+      environmentTemplateKeys: ["NODE_ENV"], environmentOverrideKeys: ["PORT"],
+    });
   });
 
   it("does not attach new image provenance to an image the operator already changed", async () => {
@@ -251,16 +261,16 @@ describe("legacy compose provenance baselines", () => {
       },
       update: () => ({
         set: (data: Record<string, unknown>) => {
-          writes.push(data);
+          writes.push(configuration.openService(data));
           return { where: async () => undefined };
         },
       }),
     } as unknown as Database;
 
-    await createServiceRepo(db).reconcileFromCompose("proj_1", [parsedWithImageTemplate]);
+    await createServiceRepo(db, testEncryption).reconcileFromCompose("proj_1", [parsedWithImageTemplate]);
 
     expect(writes).toHaveLength(1);
-    expect(writes[0].advanced).toBeUndefined();
+    expect(writes[0].advanced).toEqual(oldBaseline.advanced);
     expect(writes[0]).toMatchObject({
       importedSpec: toComposeSpec(parsedWithImageTemplate),
       driftSpec: null,
@@ -335,7 +345,7 @@ describe("Compose image provenance (#809)", () => {
       query: { service: { findMany: async () => [row] } },
       update: () => ({
         set: (data: Record<string, unknown>) => ({
-          where: async () => writes.push(data),
+          where: async () => writes.push(configuration.openService(data)),
         }),
       }),
     } as unknown as Database;
@@ -345,7 +355,7 @@ describe("Compose image provenance (#809)", () => {
       advanced: stored.advanced,
     };
 
-    await createServiceRepo(db).syncFromCompose("proj_1", [parsed], {
+    await createServiceRepo(db, testEncryption).syncFromCompose("proj_1", [parsed], {
       removeMissing: false,
       composeAuthoritative: true,
     });
@@ -376,7 +386,7 @@ describe("Compose image provenance (#809)", () => {
         query: { service: { findMany: async () => [row] } },
         update: () => ({
           set: (data: Record<string, unknown>) => ({
-            where: async () => writes.push(data),
+            where: async () => writes.push(configuration.openService(data)),
           }),
         }),
       } as unknown as Database;
@@ -392,7 +402,7 @@ describe("Compose image provenance (#809)", () => {
         },
       };
 
-      await createServiceRepo(db).reconcileFromCompose("proj_1", [parsed]);
+      await createServiceRepo(db, testEncryption).reconcileFromCompose("proj_1", [parsed]);
       return writes[0];
     };
 
@@ -405,7 +415,6 @@ describe("Compose image provenance (#809)", () => {
     const manual = await reconcile("registry.example.com/acme/api:pinned");
     expect(manual.advanced).toEqual({
       readiness: { enabled: true },
-      environmentTemplateKeys: [],
     });
   });
 });
@@ -430,13 +439,13 @@ describe("reconcileFromCompose bootstraps legacy build args (#689)", () => {
       query: { service: { findMany: async () => [{ ...row, importedSpec: oldBaseline }] } },
       update: () => ({
         set: (data: Record<string, unknown>) => {
-          writes.push(data);
+          writes.push(configuration.openService(data));
           return { where: async () => undefined };
         },
       }),
     } as unknown as Database;
 
-    await createServiceRepo(db).reconcileFromCompose("proj_1", [
+    await createServiceRepo(db, testEncryption).reconcileFromCompose("proj_1", [
       { name: "api", image: "example/api:1" },
     ]);
 
@@ -484,13 +493,13 @@ describe("reconcileFromCompose bootstraps legacy build args (#689)", () => {
         },
         update: () => ({
           set: (data: Record<string, unknown>) => {
-            writes.push(data);
+            writes.push(configuration.openService(data));
             return { where: async () => undefined };
           },
         }),
       } as unknown as Database;
 
-      await createServiceRepo(db).reconcileFromCompose("proj_1", [
+      await createServiceRepo(db, testEncryption).reconcileFromCompose("proj_1", [
         {
           name: "api",
           build: ".",
@@ -503,7 +512,6 @@ describe("reconcileFromCompose bootstraps legacy build args (#689)", () => {
       expect(writes).toHaveLength(1);
       expect(writes[0].buildArgs).toEqual(expected);
       expect(writes[0].advanced).toEqual({
-        environmentTemplateKeys: [],
         buildArgTemplateKeys: expectedTemplateKeys,
       });
       expect((writes[0].importedSpec as Record<string, unknown>).buildArgs).toEqual({

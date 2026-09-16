@@ -5,9 +5,10 @@
  * SSL operations live in ssl.service.ts.
  */
 
+import { findProjectDeployment } from "../../lib/active-deployment";
 import { existsSync, readFileSync } from "node:fs";
 import { repos, type Deployment } from "@repo/db";
-import { NotFoundError, ForbiddenError } from "@repo/core";
+import { NotFoundError, ForbiddenError, deploymentBelongsToProject } from "@repo/core";
 import type { LogEntry } from "@repo/adapters";
 import type { ExecutionContext as RequestContext } from "@repo/platform";
 import {
@@ -32,7 +33,7 @@ import {
 import { checkNoActiveBuild } from "./build.service";
 import { livePrimaryContainerId } from "../services/service-container";
 import { decryptEnvMap } from "../../lib/encryption";
-import { inlineEmptyDefers } from "./compose/service-env-layers";
+import { mergeServiceDeployEnv } from "./compose/service-env-layers";
 import * as sessionManager from "./session-manager";
 
 /**
@@ -295,20 +296,24 @@ async function describeRestoreConsequences(
     }
 
     const liveServices = liveServiceRows.map((svc) => {
-      // Same precedence as the deploy merge: a service's own env rows win over
-      // inline compose `environment:` — INCLUDING the deferral, via the shared
-      // `inlineEmptyDefers`. An inline empty the deploy will not apply is not an
-      // override, and listing it here reported a `frozen-wins` revert (plus a
-      // `scopeAmbiguous` warning) for every compose passthrough key the rollback
-      // was never going to touch. This dialog's whole job is to be trusted.
-      const overrides: Record<string, string> = {};
-      for (const [key, value] of Object.entries(
-        (svc.environment as Record<string, string> | null) ?? {},
-      )) {
-        if (inlineEmptyDefers(value, liveProject[key])) continue;
-        overrides[key] = value;
-      }
-      Object.assign(overrides, decryptEnvMap(rowsByService.get(svc.id) ?? {}));
+      const resolved = mergeServiceDeployEnv(
+        {
+          project: liveProject,
+          frozen: {},
+          inline: svc.environment ?? {},
+          templateKeys: svc.advanced?.environmentTemplateKeys,
+          service: decryptEnvMap(rowsByService.get(svc.id) ?? {}),
+        },
+        false,
+      );
+      // Keep only service-owned values for scope diagnostics. A Compose
+      // passthrough that consumes a project value is not a service override.
+      const overriddenProjectKeys = new Set(resolved.overriddenProjectKeys);
+      const overrides = Object.fromEntries(
+        Object.entries(resolved.env).filter(
+          ([key]) => overriddenProjectKeys.has(key) || !Object.hasOwn(liveProject, key),
+        ),
+      );
       return { name: svc.name, overrides };
     });
 
@@ -348,10 +353,21 @@ export async function rejectDeployment(deploymentId: string, organizationId: str
   }
 
   const project = await repos.project.findById(dep.projectId);
-  if (!project) throw new NotFoundError("Project", dep.projectId);
+  if (!project || !deploymentBelongsToProject(project, dep)) {
+    throw new NotFoundError("Project", dep.projectId);
+  }
 
   const meta = (dep.meta as { previousActiveDeploymentId?: string } | null) ?? null;
   const previousDeploymentId = meta?.previousActiveDeploymentId;
+  // Imported/old metadata is not authority to restore another project. Refuse
+  // before restoring or tearing down anything when the predecessor is invalid.
+  if (previousDeploymentId && (
+    typeof previousDeploymentId !== "string" ||
+    previousDeploymentId === deploymentId ||
+    !await findProjectDeployment(project, previousDeploymentId)
+  )) {
+    throw new NotFoundError("Previous deployment for project", project.id);
+  }
 
   // Reject both restores a release AND destroys one, so it must not start while
   // another deploy on this project is in flight — that deploy's containers are

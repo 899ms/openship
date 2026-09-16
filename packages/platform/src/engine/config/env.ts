@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createPrivateKey } from "crypto";
+import { DEFAULT_ENCRYPTION_SECRET as DEFAULT_BETTER_AUTH_SECRET } from "@repo/db/encryption";
 import {
   runtimeTarget,
   runtimeTargetId,
@@ -10,8 +11,6 @@ import {
 } from "@repo/core";
 
 export { runtimeTarget, runtimeTargetId, cloudRuntimeTarget, cloudRuntimeTargetId };
-
-const DEFAULT_BETTER_AUTH_SECRET = "change-me-in-production";
 
 /**
  * Parse a string env var as boolean. Accepts "true"/"1" → true,
@@ -318,6 +317,16 @@ const envSchema = z.object({
    * dev) regardless of this flag.
    */
   TRUST_PROXY: envBool("false"),
+  /**
+   * Trust an upstream edge/proxy to enforce rate limiting, and skip the
+   * app-level pre-auth flood guard (middleware/rate-limiter.ts `floodGuard`)
+   * as redundant. Set true when this API sits behind something that already
+   * rate-limits — the Openship Edge, or your own reverse proxy with limits.
+   * Auto-implied under CLOUD_MODE (the cloud Edge has default limits). Leave
+   * false on a standalone self-hosted API so the flood guard still protects
+   * the pre-auth session lookup.
+   */
+  OPENSHIP_TRUST_EDGE: envBool("false"),
   /**
    * Allow outbound notification webhooks to target internal/loopback/LAN hosts.
    * Default false → the SSRF guard (assertPublicUrl) runs on self-hosted too, so

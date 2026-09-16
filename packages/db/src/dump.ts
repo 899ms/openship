@@ -28,6 +28,8 @@ import { sql, eq, inArray, count, getTableColumns } from "drizzle-orm";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { db, getDriver, type DatabaseTransaction } from "./client";
 import * as schema from "./schema";
+import { SERVICE_SECRET_FIELDS, DEPLOYMENT_SECRET_FIELDS } from "./configuration-secrets";
+import { deploymentBelongsToProject } from "@repo/core";
 
 export const DUMP_FORMAT_VERSION = 1;
 
@@ -948,6 +950,8 @@ export const ENCRYPTED_COLUMNS: ReadonlyArray<EncryptedColumnSpec> = [
   { table: "instance_settings", column: "tunnelToken" },
   { table: "instance_settings", column: "ghDeviceTokenEncrypted" },
   { table: "deployment", column: "envVars" },
+  ...SERVICE_SECRET_FIELDS.map(column => ({ table: "service", column })),
+  { table: "deployment", column: "meta", secretPaths: [...DEPLOYMENT_SECRET_FIELDS] },
   { table: "notification_channel", column: "config", secretPaths: ["hmacSecret", "webhookUrl", "botToken"] },
 ];
 
@@ -1246,6 +1250,7 @@ export function assertDumpSelfContained(dump: DatabaseDump): void {
   const FK_PARENT: Record<string, string> = {
     projectId: "project",
     deploymentId: "deployment",
+    activeDeploymentId: "deployment",
     serviceId: "service",
     groupId: "project_app",
     // Backups: destinationId/runId reference org-scoped parents that DO travel
@@ -1321,6 +1326,29 @@ export function assertDumpSelfContained(dump: DatabaseDump): void {
           );
         }
       }
+    }
+  }
+
+  assertActiveDeploymentOwnership(dump.tables);
+}
+
+/** Shared by full restores and project-import preview/apply. */
+export function assertActiveDeploymentOwnership(tables: DatabaseDump["tables"]): void {
+  // Presence somewhere in the dump is insufficient: a project's active pointer
+  // must identify its own deployment, including before organization remapping.
+  const deploymentsById = new Map(
+    (tables.deployment ?? []).map((row) => {
+      const deployment = row as { id: string; projectId: string; organizationId: string };
+      return [deployment.id, deployment];
+    }),
+  );
+  for (const row of tables.project ?? []) {
+    const project = row as { id: string; organizationId: string; activeDeploymentId?: string | null };
+    if (project.activeDeploymentId == null) continue;
+    if (!deploymentBelongsToProject(project, deploymentsById.get(project.activeDeploymentId))) {
+      throw new Error(
+        `restore rejected: project ${project.id} has an active deployment that does not belong to the same project and organization.`,
+      );
     }
   }
 }

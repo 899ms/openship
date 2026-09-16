@@ -2,10 +2,12 @@
  * Service business logic - CRUD and compose sync.
  */
 
+import { findActiveDeployment } from "@repo/platform/engine/lib/active-deployment";
 import {
   normalizeRoutingFields,
   repos,
   composeSpecDiff,
+  toComposeSpec,
   type Project,
   type Service,
   type ServicePublicEndpoint,
@@ -43,10 +45,12 @@ import { encrypt, decrypt } from "../../lib/encryption";
 import {
   ENV_MASK,
   hasMaskedValue,
+  isMaskedValue,
   maskDriftChanges,
   maskServiceEnv,
   mergeServiceEnv,
   unmaskEnv,
+  unmaskBuildArgs,
 } from "../../lib/secret-env";
 import { assertNotControlPlane, assertNotControlPlaneById, assertResourceInOrg } from "../../lib/resource-access";
 import { platform } from "../../lib/platform-config";
@@ -251,11 +255,15 @@ function withDrift(svc: Service) {
   // environment masker (and now may contain raw Compose expressions with
   // literal defaults); clients consume the already-masked `drift.changes` only.
   const { importedSpec: _importedSpec, driftSpec: _driftSpec, ...publicService } = svc;
+  let changes = svc.driftSpec ? composeSpecDiff(svc.importedSpec ?? {}, svc.driftSpec) : [];
+  // #893: a previous reconcile may already have advanced the baseline while
+  // leaving cached values in the live row. That still needs a visible decision.
+  if (svc.driftSpec && changes.length === 0) {
+    changes = composeSpecDiff(toComposeSpec(svc), svc.driftSpec);
+  }
   return {
     ...maskServiceEnv(publicService)!,
-    drift: svc.driftSpec
-      ? { changes: maskDriftChanges(composeSpecDiff(svc.importedSpec ?? {}, svc.driftSpec)) }
-      : null,
+    drift: svc.driftSpec ? { changes: maskDriftChanges(changes) } : null,
   };
 }
 
@@ -335,7 +343,32 @@ export async function acceptServiceDrift(
 export async function keepServiceDrift(ctx: RequestContext, projectId: string, serviceId: string) {
   const { svc } = await assertServiceAccess(ctx, projectId, serviceId);
   if (!svc.driftSpec) return withDrift(svc);
-  await repos.service.update(serviceId, { importedSpec: svc.driftSpec, driftSpec: null });
+  const advanced = svc.advanced as ComposeAdvanced | null;
+  const keptOverrideKeys = new Set(advanced?.environmentOverrideKeys ?? []);
+  const templateKeys = new Set(advanced?.environmentTemplateKeys ?? []);
+  const sourceKeys = svc.driftSpec.advanced?.environmentTemplateKeys ?? [];
+  for (const key of new Set([...templateKeys, ...sourceKeys])) {
+    if (keptOverrideKeys.has(key)) continue;
+    if (sourceKeys.includes(key) && svc.environment?.[key] === svc.driftSpec.environment?.[key]) {
+      templateKeys.add(key);
+    } else {
+      keptOverrideKeys.add(key);
+      // A known older expression remains dynamic when the user keeps it. A
+      // cached literal with a stale marker becomes an explicit literal instead.
+      const knownExpression = svc.importedSpec?.advanced?.environmentTemplateKeys?.includes(key) &&
+        svc.environment?.[key] === svc.importedSpec.environment?.[key];
+      if (!knownExpression) templateKeys.delete(key);
+    }
+  }
+  await repos.service.update(serviceId, {
+    importedSpec: svc.driftSpec, driftSpec: null,
+    ...(keptOverrideKeys.size || sourceKeys.length ? {
+      advanced: mergeAdvanced(advanced, {
+        environmentOverrideKeys: [...keptOverrideKeys],
+        environmentTemplateKeys: [...templateKeys],
+      }),
+    } : {}),
+  });
   const updated = await repos.service.findById(serviceId);
   return withDrift(updated!);
 }
@@ -659,6 +692,11 @@ export async function createService(
     // non-empty marker when interpolation is required.
     advanced.buildArgTemplateKeys = [];
   }
+  if (data.environment && Object.keys(data.environment).length) {
+    advanced.environmentOverrideKeys = Object.keys(data.environment);
+    advanced.environmentTemplateKeys = (advanced.environmentTemplateKeys ?? [])
+      .filter((key) => !Object.hasOwn(data.environment!, key));
+  }
   // Same alias gate as updateService — normalize + reject invalid/colliding
   // custom aliases BEFORE the insert, so a create can't persist an alias the
   // update path would refuse. No serviceId yet, so pass "" — every existing
@@ -672,7 +710,7 @@ export async function createService(
     image: trimOrNull(data.image),
     build: trimOrNull(data.build),
     dockerfile: trimOrNull(data.dockerfile),
-    buildArgs: data.buildArgs ?? {},
+    buildArgs: unmaskBuildArgs(data.buildArgs, null),
     ports: data.ports ?? [],
     dependsOn: data.dependsOn ?? [],
     environment: data.environment ?? {},
@@ -753,6 +791,9 @@ export async function updateService(
       patch.environment,
     );
   }
+  if ("buildArgs" in patch) {
+    patch.buildArgs = unmaskBuildArgs(patch.buildArgs, svc.buildArgs);
+  }
 
   // `advanced` is ONE blob holding independent, separately-owned keys —
   // `healthcheck` (edited in the service form), `readiness` (the deploy gate),
@@ -779,13 +820,38 @@ export async function updateService(
     );
   }
 
+  if ("environment" in patch) {
+    // Record explicit edits separately from parser provenance. On a legacy row,
+    // editing one key cannot make every other cached key a deliberate override.
+    const advanced = ("advanced" in patch ? patch.advanced : svc.advanced) as ComposeAdvanced | null;
+    const overrideKeys = new Set(advanced?.environmentOverrideKeys ?? []);
+    const edited = data.environment === null
+      ? Object.keys(svc.environment ?? {})
+      : Object.entries(data.environment ?? {})
+          .filter(([key, value]) => !isMaskedValue(value) &&
+            (value !== svc.environment?.[key] || !advanced?.environmentTemplateKeys?.includes(key)))
+          .map(([key]) => key);
+    for (const key of edited) overrideKeys.add(key);
+    if (edited.length) {
+      patch.advanced = mergeAdvanced(advanced, {
+        environmentOverrideKeys: [...overrideKeys],
+        environmentTemplateKeys: (advanced?.environmentTemplateKeys ?? [])
+          .filter((key) => !edited.includes(key)),
+      });
+    }
+  }
+
   if ("buildArgs" in patch && !Object.hasOwn(data.advanced ?? {}, "buildArgTemplateKeys")) {
     // A manual arg edit replaces the old value's provenance as well as its
     // value. Otherwise a literal `$HOME` could inherit a repo-template marker
     // and be expanded on the next deploy.
     patch.advanced = mergeAdvanced(
       ("advanced" in patch ? patch.advanced : svc.advanced) as ComposeAdvanced | null,
-      { buildArgTemplateKeys: [] },
+      {
+        buildArgTemplateKeys: (
+          (svc.advanced as ComposeAdvanced | null)?.buildArgTemplateKeys ?? []
+        ).filter((key) => isMaskedValue(data.buildArgs?.[key])),
+      },
     );
   }
 
@@ -959,7 +1025,7 @@ export async function updateService(
       // Needed for route REMOVAL too, so it is not gated on having routes.
       const dep =
         !project.cloudWorkspaceId && project.activeDeploymentId
-          ? await repos.deployment.findById(project.activeDeploymentId)
+          ? await findActiveDeployment(project)
           : null;
 
       // Self-hosted upstream, resolved from the LIVE container: the published
@@ -972,7 +1038,7 @@ export async function updateService(
       let stored: StoredUpstream | undefined;
       let containerId: string | undefined;
       if (isRoutable && nextRoutes.length > 0 && dep && project.activeDeploymentId) {
-        const rows = await repos.service.listByDeployment(project.activeDeploymentId);
+        const rows = await repos.service.listByDeployment(dep.id);
         const row = rows.find((r) => r.serviceId === serviceId);
         stored = { ip: row?.ip, hostPort: row?.hostPort, hostPorts: row?.hostPorts };
         containerId = row?.containerId ?? undefined;
@@ -1133,8 +1199,8 @@ export async function updateService(
 async function deleteLiveService(project: Project, svc: Service): Promise<void> {
   const serviceId = svc.id;
   if (project.activeDeploymentId) {
-    const dep = await repos.deployment.findById(project.activeDeploymentId);
-    const serviceDeployments = await repos.service.listByDeployment(project.activeDeploymentId);
+    const dep = await findActiveDeployment(project);
+    const serviceDeployments = dep ? await repos.service.listByDeployment(dep.id) : [];
     const serviceDeployment = serviceDeployments.find((row) => row.serviceId === serviceId);
 
     if (dep && serviceDeployment?.containerId) {
@@ -1203,7 +1269,7 @@ async function deleteLiveService(project: Project, svc: Service): Promise<void> 
         // leave a remote vhost proxying a now-dead upstream → 502).
         const dep =
           !project.cloudWorkspaceId && project.activeDeploymentId
-            ? await repos.deployment.findById(project.activeDeploymentId)
+            ? await findActiveDeployment(project)
             : null;
         await reconcileProjectRoutes(project, {
           deployment: dep,
@@ -1368,6 +1434,7 @@ export async function syncComposeServices(
   const storedEnvByName = new Map(
     stored.map((s) => [s.name, (s.environment as Record<string, string> | null) ?? {}]),
   );
+  const storedByName = new Map(stored.map((svc) => [svc.name, svc]));
 
   // Import path, but the hostnames are still client-authored — same gate as the
   // create/update editors (normalizeRoutingPatch); `syncFromCompose` writes the
@@ -1408,8 +1475,25 @@ export async function syncComposeServices(
       svc.environmentTemplates !== undefined ||
       (!hasExplicitTemplateMarker && environment !== undefined);
 
+    // A masked argument keeps its value AND its interpolation semantics. Sync
+    // is a whole-map replacement, so new literals must not inherit a marker
+    // from the previous value. An explicit parser marker still takes priority
+    // (notably [] from `docker compose config`, whose values are already final).
+    const previous = storedByName.get(svc.name);
+    const buildArgs = svc.buildArgs && unmaskBuildArgs(svc.buildArgs, previous?.buildArgs);
+    const buildArgTemplateKeys =
+      buildArgs && !Object.hasOwn(advanced ?? {}, "buildArgTemplateKeys")
+        ? (previous?.advanced?.buildArgTemplateKeys ?? []).filter(
+            (key) => isMaskedValue(svc.buildArgs?.[key]) && Object.hasOwn(buildArgs, key),
+          )
+        : undefined;
+
     return {
       ...svc,
+      ...(buildArgs && { buildArgs }),
+      ...(buildArgTemplateKeys && {
+        advanced: { ...advanced, buildArgTemplateKeys },
+      }),
       ...(environment && { environment }),
       ...(persistTemplateProvenance && { environmentTemplates }),
     };
@@ -1456,7 +1540,6 @@ export async function syncComposeServices(
   // Best-effort per hostname: an invalid or foreign hostname throws here
   // (Validation / Conflict) and a sync that already persisted its services must not
   // fail on the follow-up bookkeeping; the deploy path re-attempts the same ensure.
-  const storedByName = new Map(stored.map((svc) => [svc.name, svc]));
   for (const svc of synced) {
     for (const row of serviceDomainRowsToEnsure(svc)) {
       await ensurePendingServiceDomain({
@@ -1541,7 +1624,7 @@ export async function getActiveServiceContainers(
   if (services.length === 0) return [];
 
   const dep = project.activeDeploymentId
-    ? await repos.deployment.findById(project.activeDeploymentId)
+    ? await findActiveDeployment(project)
     : null;
   // service_deployment rows are IDENTITY HINTS ONLY (container id, image). Their
   // `status` column is a deploy-time artifact and is never read for liveness.
@@ -1783,7 +1866,7 @@ export async function getServiceVolumeSizes(
     return { measurable: true, volumes: [], totalBytes: null, partial: false };
   if (!project.activeDeploymentId) return unmeasured(false);
 
-  const dep = await repos.deployment.findById(project.activeDeploymentId);
+  const dep = await findActiveDeployment(project);
   if (!dep) return unmeasured(false);
 
   // Resolve the host that runs this service's container → its shell executor.
@@ -1913,7 +1996,7 @@ async function resolveServiceContainer(ctx: RequestContext, projectId: string, s
   assertResourceInOrg(project, "Project", ctx.organizationId, projectId);
   if (!project.activeDeploymentId) throw new Error("No active deployment");
 
-  const dep = await repos.deployment.findById(project.activeDeploymentId);
+  const dep = await findActiveDeployment(project);
   if (!dep) throw new Error("Active deployment not found");
 
   const svc = (await repos.service.listByProject(projectId)).find((s) => s.id === serviceId);
@@ -2002,7 +2085,7 @@ async function provisionServiceContainer(
   if (!project.activeDeploymentId) {
     throw new Error("Deploy the project first, then start its services.");
   }
-  const dep = await repos.deployment.findById(project.activeDeploymentId);
+  const dep = await findActiveDeployment(project);
   if (!dep) throw new Error("Active deployment not found");
 
   const service = (await repos.service.listByProject(projectId)).find((s) => s.id === serviceId);
@@ -2168,7 +2251,7 @@ export async function restartServiceContainer(
     const project = await repos.project.findById(projectId);
     assertResourceInOrg(project, "Project", ctx.organizationId, projectId);
     const dep = project.activeDeploymentId
-      ? await repos.deployment.findById(project.activeDeploymentId).catch(() => null)
+      ? await findActiveDeployment(project).catch(() => null)
       : null;
     const service = (await repos.service.listByProject(projectId)).find((s) => s.id === serviceId);
     if (dep && service) {

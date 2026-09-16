@@ -13,6 +13,7 @@
  * by the caller, so a live-apply failure logs and defers to the next deploy.
  */
 
+import { findActiveDeployment } from "@repo/platform/engine/lib/active-deployment";
 import { repos } from "@repo/db";
 import { safeErrorMessage } from "@repo/core";
 import {
@@ -47,7 +48,14 @@ import {
   type ObservedLoopbackPublish,
 } from "../deployments/observed-host-port-claims";
 
-export async function applyProjectRouting(projectId: string): Promise<void> {
+export async function applyProjectRouting(
+  projectId: string,
+  options: { onWarning?: (message: string) => void } = {},
+): Promise<void> {
+  const warn = (message: string) => {
+    console.warn(message);
+    options.onWarning?.(message);
+  };
   const project = await repos.project.findById(projectId);
   if (!project) return;
 
@@ -60,7 +68,7 @@ export async function applyProjectRouting(projectId: string): Promise<void> {
   // transport, while routing drives the box through the pooled SSH executor.
   let resolved: ResolvedDeploymentPlatform | null = null;
   try {
-    const deployment = await repos.deployment.findById(project.activeDeploymentId);
+    const deployment = await findActiveDeployment(project);
     if (!deployment) return;
 
     resolved = await resolveDeploymentPlatform((deployment.meta ?? {}) as DeploymentMeta, {
@@ -69,7 +77,7 @@ export async function applyProjectRouting(projectId: string): Promise<void> {
     const { routing, runtime } = resolved.platform;
     const managed = usesManagedRouting(platform().target, resolved.effectiveTarget);
     const defs = await repos.service.listByProject(project.id);
-    const liveRows = await repos.service.listByDeployment(project.activeDeploymentId);
+    const liveRows = await repos.service.listByDeployment(deployment.id);
 
     // Cloud: apply the vercel routing at the Oblien edge (no OpenResty).
     if (runtime instanceof CloudRuntime) {
@@ -257,7 +265,7 @@ export async function applyProjectRouting(projectId: string): Promise<void> {
             : null,
           !resolveTargetUrl(plan.backendServiceId) ? "the backend has no live upstream" : null,
         ].filter(Boolean);
-        console.warn(
+        warn(
           `[routing-apply] ${project.slug}: composite vhost not emitted — ` +
             `${missing.length ? missing.join("; ") : "no routable domain for the frontend"}. ` +
             `Redeploy to rebuild it.`,
@@ -308,6 +316,7 @@ export async function applyProjectRouting(projectId: string): Promise<void> {
     const registers = [...serviceRegisters, ...topologyRegisters];
     if (registers.length > 0) {
       await reconcileProjectRoutes(project, {
+        onWarning: options.onWarning,
         deployment,
         routing,
         hostPortTarget: resolved.hostPortTarget,
@@ -318,9 +327,8 @@ export async function applyProjectRouting(projectId: string): Promise<void> {
       });
     }
   } catch (err) {
-    console.warn(
-      `[routing-apply] ${project.slug}: live routing re-apply failed (non-fatal, applies next deploy): ${safeErrorMessage(err)}`,
-    );
+    const warning = `[routing-apply] ${project.slug}: live routing re-apply failed (non-fatal, applies next deploy): ${safeErrorMessage(err)}`;
+    warn(warning);
   } finally {
     disposePlatform(resolved);
   }
