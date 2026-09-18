@@ -75,3 +75,6 @@ export * from "./deployment-events";
 export * from "./operation-limits";
 export type { ExecutionAuthority } from "./execution-authority";
 export * from "./sse";
+export * from "./infrastructure";
+export * from "./managed-network";
+export * from "./network-firewall";
