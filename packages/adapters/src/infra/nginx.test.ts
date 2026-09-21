@@ -79,6 +79,8 @@ interface FakeOpts {
   failChmod?: boolean;
   provider?: Partial<NginxProviderOptions>;
   certbotFailure?: string;
+  /** Publish a certificate when the simulated certbot command succeeds. */
+  onCertbot?: () => void;
   paths?: OpenRestyPaths;
 }
 
@@ -190,6 +192,7 @@ function makeExecutor(
     if ((command.startsWith("certbot ") || command.startsWith("env ")) && opts.certbotFailure) {
       throw new Error(opts.certbotFailure);
     }
+    if (command.startsWith("certbot ") || command.startsWith("env ")) opts.onCertbot?.();
     if (command.startsWith("chmod ") && opts.failChmod) {
       throw new Error("chmod: cannot access operand: No such file or directory");
     }
@@ -1839,27 +1842,162 @@ describe("issuing a certificate keeps the tunables", () => {
     await nginx.registerRoute(sidecar);
     expect(conf("app-example-com")).toBe(before);
   });
+});
 
-  test("provisionCert scrape fallback ignores ACME challenge port and recovers true backend upstream", async () => {
-    const { nginx, files, conf } = setup({ certDomains: ["app.example.com"] });
-    // Register an initial HTTP route
-    await nginx.registerRoute({ domain: "app.example.com", tls: false, targetUrl: "http://127.0.0.1:7745" });
-    // Remove sidecar so provisionCert has to scrape the existing .conf
-    files.delete(`${SITES}/app-example-com.route.json`);
-    expect(conf("app-example-com")).toContain("proxy_pass http://127.0.0.1:49180;");
-    expect(conf("app-example-com")).toContain("proxy_pass http://127.0.0.1:7745;");
+describe("provisionCert legacy route recovery", () => {
+  const domain = "app.example.com";
+  const slug = "app-example-com";
+  const configPath = SITES + "/" + slug + ".conf";
+  const statePath = SITES + "/" + slug + ".route.json";
+  const route: RouteConfig = { domain, tls: false, targetUrl: "http://127.0.0.1:7745" };
 
-    // provisionCert with certs simulated in certDomains
-    await nginx.provisionCert("app.example.com");
+  function issuing() {
+    const opts: FakeOpts = {};
+    const context = setup(opts);
+    const issue = () => {
+      const cert = makeTestCert([domain]);
+      context.files.set("/etc/letsencrypt/live/" + domain + "/fullchain.pem", cert.certPem);
+      context.files.set("/etc/letsencrypt/live/" + domain + "/privkey.pem", cert.keyPem);
+    };
+    opts.onCertbot = issue;
+    return { ...context, opts, issue };
+  }
 
-    // The upgraded vhost must proxy to 7745, NOT 49180
-    const updated = conf("app-example-com")!;
-    expect(updated).toContain("proxy_pass http://127.0.0.1:7745;");
-    // location / must not have 49180
-    const locationSlash = updated.match(/location\s+\/\s*\{([^}]+)\}/)?.[1];
-    expect(locationSlash).toContain("proxy_pass http://127.0.0.1:7745;");
-    expect(locationSlash).not.toContain("49180");
+  async function legacy(initial: RouteConfig = route) {
+    const context = issuing();
+    await context.nginx.registerRoute(initial);
+    context.files.delete(statePath);
+    return context;
+  }
+
+  test.each(["missing", "invalid JSON"])(
+    "issuance preserves the backend when the sidecar is %s",
+    async (state) => {
+      const { nginx, files, conf } = await legacy();
+      if (state === "invalid JSON") files.set(statePath, "{");
+      expect(conf(slug)).toContain("proxy_pass http://127.0.0.1:49180;");
+      expect(conf(slug)).not.toContain("listen 443 ssl;");
+
+      await expect(nginx.provisionCert(domain)).resolves.toMatchObject({ verified: true });
+
+      const tls = conf(slug)!.split("listen 443 ssl;")[1];
+      expect(tls).toContain("proxy_pass http://127.0.0.1:7745;");
+      expect(tls).not.toContain("proxy_pass http://127.0.0.1:49180;");
+      expect(JSON.parse(files.get(statePath)!)).toMatchObject({ ...route, tls: true });
+    },
+  );
+
+  test("renewal recovers the backend beyond the nested HTTPS redirect", async () => {
+    const { nginx, files, conf, issue } = issuing();
+    issue();
+    await nginx.registerRoute({ ...route, tls: true });
+    files.delete(statePath);
+    expect(conf(slug)).toContain("if ($openship_redirect_https)");
+
+    await expect(nginx.provisionCert(domain, { force: true })).resolves.toMatchObject({
+      verified: true,
+    });
+
+    expect(JSON.parse(files.get(statePath)!)).toMatchObject({ ...route, tls: true });
+    expect(conf(slug)!.split("listen 443 ssl;")[1]).toContain("proxy_pass http://127.0.0.1:7745;");
   });
+
+  test("issuance recovers the adopted site's root rather than the challenge directory", async () => {
+    const initial: RouteConfig = {
+      domain,
+      tls: false,
+      staticRoot: "/srv/legacy/public",
+      staticRootAdopted: true,
+    };
+    const { nginx, files, conf } = await legacy(initial);
+
+    await expect(nginx.provisionCert(domain)).resolves.toMatchObject({ verified: true });
+
+    expect(JSON.parse(files.get(statePath)!)).toMatchObject({ ...initial, tls: true });
+    expect(conf(slug)!.split("listen 443 ssl;")[1]).toContain("root /srv/legacy/public;");
+  });
+
+  test.each([
+    "http://app49180.internal:8080",
+    "http://127.0.0.1:7745/releases/49180",
+    "http://192.0.2.7:49180",
+  ])(
+    "does not mistake a legitimate upstream for the local challenge listener: %s",
+    async (targetUrl) => {
+      const { nginx, files, conf } = await legacy({ domain, tls: false, targetUrl });
+
+      await expect(nginx.provisionCert(domain)).resolves.toMatchObject({ verified: true });
+
+      expect(JSON.parse(files.get(statePath)!)).toMatchObject({ targetUrl, tls: true });
+      expect(conf(slug)!.split("listen 443 ssl;")[1]).toContain("proxy_pass " + targetUrl + ";");
+    },
+  );
+
+  test.each(["http://127.0.0.1:49180", "http://[::1]:49180"])(
+    "leaves an already corrupted upstream untouched and reports recovery is needed: %s",
+    async (targetUrl) => {
+      const { nginx, files, conf } = await legacy({ domain, tls: false, targetUrl });
+      const before = conf(slug);
+
+      await expect(nginx.provisionCert(domain)).rejects.toThrow(/recover.*route/i);
+
+      expect(conf(slug)).toBe(before);
+      expect(files.has(statePath)).toBe(false);
+    },
+  );
+
+  test("does not promote a challenge or sibling location when the primary location is absent", async () => {
+    const { nginx, files, conf } = await legacy();
+    files.set(configPath, conf(slug)!.replace("location / {", "location /api/ {"));
+    const before = conf(slug);
+
+    await expect(nginx.provisionCert(domain)).rejects.toThrow(/recover.*route/i);
+
+    expect(conf(slug)).toBe(before);
+    expect(files.has(statePath)).toBe(false);
+  });
+
+  test("certificate-only issuance still works when no vhost exists", async () => {
+    const { nginx, files, conf } = issuing();
+
+    await expect(nginx.provisionCert(domain)).resolves.toMatchObject({ verified: true });
+
+    expect(conf(slug)).toBeUndefined();
+    expect(files.has(statePath)).toBe(false);
+  });
+
+  test("an intact sidecar retains all locations while issuance enables TLS", async () => {
+    const { nginx, files, conf } = issuing();
+    const initial: RouteConfig = {
+      ...route,
+      proxyLocations: [{ pathPrefix: "/api/", targetUrl: "http://127.0.0.1:4010" }],
+    };
+    await nginx.registerRoute(initial);
+
+    await expect(nginx.provisionCert(domain)).resolves.toMatchObject({ verified: true });
+
+    expect(JSON.parse(files.get(statePath)!)).toEqual({ ...initial, tls: true });
+    const tls = conf(slug)!.split("listen 443 ssl;")[1];
+    expect(tls).toContain("proxy_pass http://127.0.0.1:7745;");
+    expect(tls).toContain("proxy_pass http://127.0.0.1:4010;");
+  });
+
+  test.each([true, false])(
+    "a failed reload is reported and restores the route (sidecar: %s)",
+    async (sidecar) => {
+      const { nginx, files, conf, opts } = issuing();
+      await nginx.registerRoute(route);
+      if (!sidecar) files.delete(statePath);
+      const before = conf(slug);
+      const state = files.get(statePath);
+      opts.failReload = true;
+
+      await expect(nginx.provisionCert(domain)).rejects.toThrow();
+
+      expect(conf(slug)).toBe(before);
+      expect(files.get(statePath)).toBe(state);
+    },
+  );
 });
 
 /**
