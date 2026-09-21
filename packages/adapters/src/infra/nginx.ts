@@ -2519,25 +2519,31 @@ ${serveLocation}
     try {
       const existing = await this._readFile(configPath);
       const scraped = this.scrapeProxySettings(existing);
-      const targetMatch = existing.match(/proxy_pass\s+([^;]+);/);
-      if (targetMatch) {
+      // Extract from `location /` specifically — a naive match on the whole vhost
+      // matches `proxy_pass http://127.0.0.1:${ACME_HTTP01_PORT};` inside the
+      // `^~ /.well-known/acme-challenge/` block first, pointing the re-registered
+      // route at the challenge port and breaking subsequent ACME runs.
+      const locationSlashMatch = existing.match(/location\s+\/\s*\{([^}]+)\}/);
+      const locationSlashBody = locationSlashMatch?.[1] ?? existing;
+      const targetMatch = locationSlashBody.match(/proxy_pass\s+([^;]+);/);
+      if (targetMatch && !targetMatch[1].includes(String(ACME_HTTP01_PORT))) {
         await this.registerRoute({
           domain,
-          targetUrl: targetMatch[1],
+          targetUrl: targetMatch[1].trim(),
           tls: true,
           ...(scraped ? { proxy: scraped } : {}),
         });
         return this.ensureIssued(domain, certonlyOut);
       }
 
-      const rootMatch = existing.match(/root\s+([^;]+);/);
+      const rootMatch = locationSlashBody.match(/root\s+([^;]+);/);
       if (rootMatch) {
         // Re-registering the root from OUR OWN existing vhost to add TLS. It passed
         // the floor when first written (possibly as adopted), so re-checking it here
         // would reject a legitimately imported site at cert time.
         await this.registerRoute({
           domain,
-          staticRoot: rootMatch[1],
+          staticRoot: rootMatch[1].trim(),
           staticRootAdopted: true,
           tls: true,
           ...(scraped ? { proxy: scraped } : {}),

@@ -1740,6 +1740,27 @@ describe("issuing a certificate keeps the tunables", () => {
     await nginx.registerRoute(sidecar);
     expect(conf("app-example-com")).toBe(before);
   });
+
+  test("provisionCert scrape fallback ignores ACME challenge port and recovers true backend upstream", async () => {
+    const { nginx, files, conf } = setup({ certDomains: ["app.example.com"] });
+    // Register an initial HTTP route
+    await nginx.registerRoute({ domain: "app.example.com", tls: false, targetUrl: "http://127.0.0.1:7745" });
+    // Remove sidecar so provisionCert has to scrape the existing .conf
+    files.delete(`${SITES}/app-example-com.route.json`);
+    expect(conf("app-example-com")).toContain("proxy_pass http://127.0.0.1:49180;");
+    expect(conf("app-example-com")).toContain("proxy_pass http://127.0.0.1:7745;");
+
+    // provisionCert with certs simulated in certDomains
+    await nginx.provisionCert("app.example.com");
+
+    // The upgraded vhost must proxy to 7745, NOT 49180
+    const updated = conf("app-example-com")!;
+    expect(updated).toContain("proxy_pass http://127.0.0.1:7745;");
+    // location / must not have 49180
+    const locationSlash = updated.match(/location\s+\/\s*\{([^}]+)\}/)?.[1];
+    expect(locationSlash).toContain("proxy_pass http://127.0.0.1:7745;");
+    expect(locationSlash).not.toContain("49180");
+  });
 });
 
 /**
