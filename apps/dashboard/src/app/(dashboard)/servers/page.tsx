@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { BlurIp } from "@/components/BlurIp";
 import {
@@ -22,10 +22,12 @@ import {
   Layers,
   MapPin,
   HardDrive,
+  RefreshCw,
 } from "lucide-react";
-import { systemApi } from "@/lib/api";
+import { getApiErrorMessage, systemApi } from "@/lib/api";
 import type { ContainerApplyActive, ContainerApplyIntent } from "@/lib/api/system";
 import { PageContainer } from "@/components/ui/PageContainer";
+import { Button } from "@/components/ui/button";
 import DropdownMenu from "@/components/ui/DropdownMenu";
 import { Tabs, type TabDef } from "@/components/ui/Tabs";
 import { usePlatform } from "@/context/PlatformContext";
@@ -35,7 +37,10 @@ import { useInfraFleet, type InfraSegment } from "@/hooks/useInfraFleet";
 import { useContainerApplyModal } from "@/hooks/useSystemPrepareModal";
 import { InfraFleetCard } from "@/components/infra/InfraFleetCard";
 import { InfraFilters } from "@/components/infra/InfraFilters";
-import { ComingSoonPanel } from "./_components/coming-soon-panel";
+import type { ClusterCapabilities } from "@repo/contracts";
+import { privateNetworksApi } from "@/lib/api/private-networks";
+import { ServerClustersPanel } from "@/components/servers/clusters/ServerClustersPanel";
+import { useServerClustersOverview } from "@/hooks/useServerClustersOverview";
 import * as CountryFlags from "country-flag-icons/react/3x2";
 
 const FLAGS = CountryFlags as Record<
@@ -84,7 +89,39 @@ export default function ServersPage() {
   /** Managed edge/mail containers exist only where we operate the boxes. */
   const infraEnabled = selfHosted || isDesktop;
 
-  const [activeTab, setActiveTab] = useState<ServersTab>("servers");
+  const searchParams = useSearchParams();
+  const [clusterCapabilities, setClusterCapabilities] = useState<ClusterCapabilities | null>(null);
+  const [clusterCapabilitiesError, setClusterCapabilitiesError] = useState<string | null>(null);
+  const [clusterCapabilitiesAttempt, setClusterCapabilitiesAttempt] = useState(0);
+  const clustersEligible = selfHosted && deployMode !== "cloud";
+  const requestedTab = searchParams.get("tab");
+  const activeTab: ServersTab =
+    clustersEligible && (requestedTab === "cluster" || requestedTab === "networking")
+      ? requestedTab
+      : "servers";
+  const clusterOverview = useServerClustersOverview(
+    clustersEligible && activeTab !== "servers" && !!clusterCapabilities?.available,
+  );
+  const setActiveTab = (tab: ServersTab) =>
+    router.replace(tab === "servers" ? "/servers" : `/servers?tab=${tab}`);
+  useEffect(() => {
+    let current = true;
+    setClusterCapabilities(null);
+    setClusterCapabilitiesError(null);
+    if (clustersEligible) {
+      void privateNetworksApi
+        .capabilities()
+        .then((value) => {
+          if (current) setClusterCapabilities(value);
+        })
+        .catch((error) => {
+          if (current) setClusterCapabilitiesError(getApiErrorMessage(error));
+        });
+    }
+    return () => {
+      current = false;
+    };
+  }, [clustersEligible, clusterCapabilitiesAttempt]);
   const [servers, setServers] = useState<ServerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   /** Live reachability per server (see probeReachability). */
@@ -292,8 +329,20 @@ export default function ServersPage() {
 
   const tabs: TabDef<ServersTab>[] = [
     { key: "servers", label: t.servers.tabsNav.servers, icon: Server },
-    { key: "cluster", label: t.servers.tabsNav.cluster, icon: Boxes },
-    { key: "networking", label: t.servers.tabsNav.networking, icon: Network },
+    {
+      key: "cluster",
+      label: t.servers.tabsNav.cluster,
+      icon: Boxes,
+      hidden: !clustersEligible,
+      href: "/servers?tab=cluster",
+    },
+    {
+      key: "networking",
+      label: t.servers.tabsNav.networking,
+      icon: Network,
+      hidden: !clustersEligible,
+      href: "/servers?tab=networking",
+    },
   ];
 
   return (
@@ -301,7 +350,7 @@ export default function ServersPage() {
       {/* Header — mb-6 to match the server DETAIL page's header gap exactly, so
           the tab strip sits at the same y on both pages (this was mb-5, which put
           the list's tabs 4px higher than the detail's). */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-medium text-foreground/80" style={{ letterSpacing: "-0.2px" }}>
             {t.servers.list.title}
@@ -343,27 +392,69 @@ export default function ServersPage() {
               {t.servers.list.addServer}
             </button>
           ))}
+        {activeTab !== "servers" && clusterCapabilities?.available && (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={clusterOverview.refresh}
+              disabled={clusterOverview.refreshing}
+              aria-label={t.servers.networks.refresh}
+              title={t.servers.networks.refresh}
+            >
+              <RefreshCw
+                className={`size-4 ${clusterOverview.refreshing ? "animate-spin" : ""}`}
+              />
+            </Button>
+            {clusterCapabilities.canManage && (
+              <Button asChild>
+                <Link href={activeTab === "networking" ? "/servers/networks/new" : "/servers/clusters/new"}>
+                  <Plus className="size-4" />
+                  {activeTab === "networking" ? t.servers.networks.createCluster : t.servers.clusters.createCluster}
+                </Link>
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <Tabs tabs={tabs} value={activeTab} onChange={setActiveTab} className="mb-6" />
 
-      {activeTab === "cluster" && (
-        <ComingSoonPanel
-          art="cluster"
-          badge={t.servers.comingSoon.badge}
-          title={t.servers.comingSoon.clusterTitle}
-          body={t.servers.comingSoon.clusterBody}
-        />
-      )}
-
-      {activeTab === "networking" && (
-        <ComingSoonPanel
-          art="network"
-          badge={t.servers.comingSoon.badge}
-          title={t.servers.comingSoon.networkingTitle}
-          body={t.servers.comingSoon.networkingBody}
-        />
-      )}
+      {activeTab !== "servers" &&
+        (clusterCapabilitiesError ? (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-3 rounded-xl bg-danger/10 p-4 text-sm text-danger"
+          >
+            <span>{clusterCapabilitiesError}</span>
+            <button
+              type="button"
+              className="shrink-0 font-medium underline"
+              onClick={() => setClusterCapabilitiesAttempt((attempt) => attempt + 1)}
+            >
+              {t.servers.networks.retry}
+            </button>
+          </div>
+        ) : !clusterCapabilities ? (
+          <div
+            role="status"
+            className="flex justify-center py-16"
+            aria-label={activeTab === "networking" ? t.servers.networks.listTitle : t.servers.clusters.listTitle}
+          >
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : clusterCapabilities.available ? (
+          <ServerClustersPanel
+            capabilities={clusterCapabilities}
+            overview={clusterOverview}
+            view={activeTab === "networking" ? "networks" : "clusters"}
+          />
+        ) : (
+          <p role="status" className="rounded-xl bg-muted/50 p-5 text-sm text-muted-foreground">
+            {clusterCapabilities.reason || t.servers.networks.selfHostedOnly}
+          </p>
+        ))}
 
       {activeTab === "servers" &&
         (loading ? (

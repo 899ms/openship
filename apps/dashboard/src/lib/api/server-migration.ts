@@ -1,5 +1,7 @@
 import { api, getApiBaseUrl } from "./client";
 import { endpoints } from "./endpoints";
+import type { PromptPayload } from "@repo/core";
+import type { MigrationServiceRoutes } from "@repo/contracts";
 
 // ─── Types (mirror apps/api docker-inspect.service.ts DiscoveredStack) ────────
 
@@ -38,12 +40,15 @@ export interface DiscoveredService {
   /** Host edge ports (80/443) it publishes — reserved for Openship's edge. */
   edgePorts?: number[];
   /** Routes the server's existing (foreign) reverse proxy already serves for this
-   *  container, matched by published host port. ONE ENTRY PER (port,path): a
+   *  container, matched by published host port. ONE ENTRY PER (port,path,match mode): a
    *  path-fan-out domain (`/ → :1010`, `/v3 → :1020`) or a multi-port container
    *  collects several. Absent = none detected. */
   existingRoute?: Array<{
     port: number;
+    containerPort?: number;
+    upstream?: string;
     path: string;
+    exact?: boolean;
     domains: string[];
     ssl: { enabled: boolean; certPath?: string; keyPath?: string };
     source?: string;
@@ -96,6 +101,7 @@ export interface OpenshipProjectGroup {
 
 export interface DiscoveredStack {
   serverId: string;
+  proxy?: { kind: NonNullable<DiscoveredService["proxyKind"]>; container: string | null; ours: boolean };
   composeProjects: string[];
   groups: DiscoveredGroup[];
   services: DiscoveredService[];
@@ -233,6 +239,7 @@ export interface PendingItem {
 
 export interface MigrationRun {
   id: string;
+  pendingPrompt?: PromptPayload | null;
   status: MigrationStatus;
   /**
    * How the run was started. The first two come from a SCAN (adopt someone else's stack);
@@ -520,16 +527,7 @@ export const dockerMigrationApi = {
     /** serviceName → domain/route to publish server-side once the target is up.
      *  `targetPath` (e.g. "/v3") marks a service serving a PATH of a shared
      *  domain (path fan-out); its absence = the root `/`. */
-    routesByServiceName?: Record<
-      string,
-      {
-        exposedPort?: string;
-        domainType: "free" | "custom";
-        domain?: string;
-        customDomain?: string;
-        targetPath?: string;
-      }
-    >;
+    routesByServiceName?: MigrationServiceRoutes;
     /** serviceName → target-volume conflict resolution (override/clone/keep). */
     conflictResolution?: Record<string, ConflictAction>;
     /** Adopt Openship-managed containers too (raw Docker) — must match the scan. */
@@ -581,6 +579,9 @@ export const dockerMigrationApi = {
     api.get<{ success: boolean; run: MigrationRun; progress?: TransferProgress | null }>(
       endpoints.dockerMigration.migration(id),
     ),
+
+  respond: (id: string, promptId: string, action: string) =>
+    api.post<{ success: boolean }>(endpoints.dockerMigration.respond(id), { promptId, action }),
 
   /**
    * Live run SSE — the CLEAN real-time feed (like the deploy build stream):

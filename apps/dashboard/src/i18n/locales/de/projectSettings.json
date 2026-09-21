@@ -172,12 +172,15 @@
       "runningStatus": "Läuft — {status}"
     },
     "cache": {
-      "title": "Cache",
-      "description": "Zwischengespeicherte Build-Artefakte und Abhängigkeitsinstallationen leeren",
+      "title": "Docker-Build-Cache",
+      "description": "Ungenutzter Build-Cache wird automatisch auf 5 GB pro Server begrenzt",
       "clearInstall": "Installations-Cache leeren",
       "clearInstallDesc": "Zwischengespeicherte node_modules entfernen",
       "clearBuild": "Build-Cache leeren",
-      "clearBuildDesc": "Zwischengespeicherte Build-Ausgabe entfernen"
+      "clearBuildDesc": "Ungenutzten Cache auf dem Docker-Server dieses Projekts entfernen",
+      "clearBuildConfirm": "Gesamten ungenutzten Docker-Build-Cache auf diesem Server leeren? Andere Projekte müssen beim nächsten Deployment möglicherweise Abhängigkeiten neu bauen.",
+      "clearBuildSuccess": "{size} Build-Cache freigegeben",
+      "clearBuildEmpty": "Kein ungenutzter Build-Cache vorhanden"
     },
     "transfer": {
       "title": "Übertragen & Klonen",
@@ -362,8 +365,8 @@
       "appliesOnDeploy": "Wird beim nächsten Deploy angewendet."
     },
     "env": {
-      "title": "Umgebungsvariablen",
-      "description": "Verschlüsselt gespeichert. Geheimnisse bleiben maskiert — nur die von Ihnen geänderten Werte werden geschrieben.",
+      "title": "Projektumgebung (Build und gemeinsame Laufzeit)",
+      "description": "Wird für Image-Builds und als gemeinsame Laufzeiteingabe verwendet. Compose-Werte und dienstspezifische Laufzeitwerte haben zur Laufzeit Vorrang. Geheimnisse bleiben verborgen.",
       "edit": "Bearbeiten"
     }
   },
@@ -372,10 +375,10 @@
     "saveChanges": "Änderungen speichern",
     "close": "Schließen",
     "applyTitle": "Ohne Neubau anwenden",
-    "applyText": "Gespeichert. Wenden Sie diese auf den laufenden Dienst an — er startet mit der neuen Umgebung neu, ohne Klon oder Neubau.",
+    "applyText": "Gespeichert. Neustarten, um Laufzeitänderungen anzuwenden. Erneut bauen und bereitstellen, um beim Image-Build verwendete Werte anzuwenden.",
     "applyButton": "Anwenden (Neustart, kein Neubau)",
-    "title": "Umgebungsvariablen",
-    "description": "Produktion. Verschlüsselt gespeichert. Geheimnisse werden als gesetzt angezeigt — tippen zum Ersetzen; leer lassen zum Beibehalten.",
+    "title": "Projektumgebung (Build und gemeinsame Laufzeit)",
+    "description": "Produktionsvariablen des Projekts. Geheimnisse bleiben verborgen; ein gespeichertes Geheimnis leer lassen, um es beizubehalten. Dienstwerte haben bei gleichem Schlüssel Vorrang.",
     "empty": "Noch keine Umgebungsvariablen.",
     "keyPlaceholder": "KEY",
     "secretPlaceholder": "•••••••• (gesetzt — tippen zum Ersetzen)",
@@ -471,13 +474,13 @@
       "title": "Rollback-Strategie",
       "rebuild": "Neubau (Git)",
       "instant": "Sofort (Snapshot)",
-      "descRebuild": "Baut den alten Commit neu, sofern dessen Image nicht noch auf dem Host liegt.",
-      "descInstant": "Behält das Image jeder Version, sodass eine Wiederherstellung nie neu baut. Braucht mehr Speicher.",
+      "descRebuild": "Baut den früheren Commit neu, sofern sein Image nicht mehr auf dem Host liegt.",
+      "descInstant": "Bewahrt Artefakte bis zum Verlaufslimit auf. Ältere Versionen müssen eventuell neu gebaut werden.",
       "toggleAria": "Snapshot-Aufbewahrung umschalten",
-      "keepNone": "Keine Extra-Kopien",
-      "keepCopies": "Eine Kopie pro Version",
-      "descRebuildFiles": "Baut den alten Commit neu, sofern dessen Dateien nicht noch auf dem Host liegen.",
-      "descInstantFiles": "Behält die Dateien jeder Version, sodass eine Wiederherstellung nie neu baut. Braucht mehr Speicher."
+      "keepNone": "Images wiederverwenden oder neu bauen",
+      "keepCopies": "Rollback-Artefakte aufbewahren",
+      "descRebuildFiles": "Baut den früheren Commit neu, sofern seine Dateien nicht mehr auf dem Host liegen.",
+      "descInstantFiles": "Bewahrt Build-Dateien bis zum Verlaufslimit auf. Ältere Versionen müssen eventuell neu gebaut werden."
     },
     "rollbackHistory": {
       "title": "Rollback-Verlauf",
@@ -487,13 +490,17 @@
       "descGit": "Aktuelle Images bleiben ohnehin erhalten, sodass ein Rollback den Build überspringen kann.",
       "decreaseAria": "Rollback-Verlauf verringern",
       "increaseAria": "Rollback-Verlauf erhöhen",
-      "sizeEach": "~{size} pro Version",
+      "sizeEach": "~{size} pro Image, einschließlich gemeinsam genutzter Schichten",
       "diskFree": "{size} frei",
       "autoBadge": "automatisch bemessen",
       "manualBadge": "manuell gesetzt",
       "kindFiles": "gebaute Dateien auf der Platte",
       "kindImages": "Images auf dem Host",
-      "descGitFiles": "Die Dateien aktueller Versionen bleiben ohnehin erhalten, sodass ein Rollback den Build überspringen kann."
+      "descGitFiles": "Die Dateien aktueller Versionen bleiben ohnehin erhalten, sodass ein Rollback den Build überspringen kann.",
+      "retentionHint": "Artefakte neuerer Bereitstellungen für ein schnelles Rollback aufbewahren.",
+      "retentionDescription": "Maximale Anzahl aufzubewahrender früherer Versionen. Aktive und angeheftete Versionen zählen zusätzlich. Ältere Artefakte werden entfernt; der Bereitstellungsverlauf bleibt verfügbar. Bei 0 bleiben nur aktive und angeheftete Versionen erhalten.",
+      "defaultBadge": "Instanzstandard",
+      "loadFailed": "Rollback-Einstellungen konnten nicht geladen werden."
     },
     "commits": {
       "title": "Letzte Commits",
@@ -558,6 +565,9 @@
     "title": "Maschinenleistung",
     "description": "CPU- und Speichergrenzen für die Container dieses Projekts.",
     "loading": "Zielmaschine wird gelesen …",
+    "unavailable": "Maschinenleistung nicht verfügbar",
+    "loadFailed": "Maschinenleistung konnte nicht geladen werden",
+    "retry": "Erneut versuchen",
     "machineCapacity": "Maschine: {cpu} vCPU · {memory}",
     "exceedsMachine": "Übersteigt diese Maschine",
     "appliesOnNextDeploy": "Grenzen werden beim Neuerstellen des Containers angewendet – für eine Änderung neu deployen.",
@@ -855,5 +865,13 @@
       "noIndex": "Unter {path} liegt eine Ausgabe, aber keine Index-Datei — Anfragen liefern 404. Prüfen Sie Ihr Ausgabeverzeichnis.",
       "notServed": "Der Edge-Proxy antwortete mit HTTP {status} für {path} — dieser Pfad wird nicht ausgeliefert. Prüfen Sie Ihr Ausgabeverzeichnis und die Route."
     }
+  },
+  "serviceEnvironment": {
+    "title": "Laufzeitumgebung des Dienstes",
+    "description": "Diese Variablen gelten nur für diesen Dienst und überschreiben gleichnamige Werte aus Compose oder dem Projekt. Aktiviere gespeicherte Werte mit Umgebungsänderungen anwenden.",
+    "overrides": "Diese Schlüssel haben für diesen Dienst Vorrang vor den Projektwerten: {keys}.",
+    "buildArguments": "Build-Argumente werden in der Compose-Datei oder der Quellkonfiguration festgelegt und erfordern einen erneuten Build.",
+    "projectLink": "Gemeinsame Projektumgebung bearbeiten",
+    "loadFailed": "Die Namen der Projektvariablen konnten nicht zum Prüfen von Überschreibungen geladen werden."
   }
 }

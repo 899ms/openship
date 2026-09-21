@@ -66,7 +66,6 @@ export const endpoints = {
     folderScan: (sessionId: string) => `projects/folder/scan/${sessionId}`,
     // #336: POST { service, keys } — real (unmasked) values for one folder-scan
     // service's named keys.
-    folderEnvReveal: (sessionId: string) => `projects/folder/scan/${sessionId}/env-reveal`,
     folderUpload: (sessionId: string) => `projects/folder/upload/${sessionId}`,
   },
 
@@ -106,6 +105,8 @@ export const endpoints = {
       `projects/${projectId}/services/${serviceId}/stop`,
     restart: (projectId: string | number, serviceId: string) =>
       `projects/${projectId}/services/${serviceId}/restart`,
+    applyEnvironment: (projectId: string | number, serviceId: string) =>
+      `projects/${projectId}/services/${serviceId}/apply-env`,
     driftAccept: (projectId: string | number, serviceId: string) =>
       `projects/${projectId}/services/${serviceId}/drift/accept`,
     driftKeep: (projectId: string | number, serviceId: string) =>
@@ -234,8 +235,17 @@ export const endpoints = {
     connect: "github/connect",
     connectRedirect: "github/connect/redirect",
     connectPoll: "github/connect/poll",
+    installationClaim: "github/installations/claim",
     disconnect: "github/disconnect",
     instanceToken: "github/instance-token",
+    sources: "github/sources",
+    sourceManifest: "github/sources/manifest",
+    sourceManifestConvert: "github/sources/manifest/convert",
+    sourceManual: "github/sources/manual",
+    source: (id: string) => `github/sources/${encodeURIComponent(id)}`,
+    sourceVerify: (id: string) => `github/sources/${encodeURIComponent(id)}/verify`,
+    sourceDefault: (id: string) => `github/sources/${encodeURIComponent(id)}/default`,
+    sourceInstall: (id: string) => `github/sources/${encodeURIComponent(id)}/install`,
   },
 
   /* ---------------------------------------------------------------- */
@@ -359,8 +369,16 @@ export const endpoints = {
       preview: "system/data-transfer/preview",
       directSession: "system/data-transfer/direct/session",
       directSend: "system/data-transfer/direct/send",
+      directSendStream: "system/data-transfer/direct/send/stream",
       export: "system/data-transfer/export",
       import: "system/data-transfer/import",
+      importSession: "system/data-transfer/import/session",
+      importPreview: (sessionId: string) =>
+        `system/data-transfer/import/session/${encodeURIComponent(sessionId)}/preview`,
+      importChunk: (sessionId: string, index: number) =>
+        `system/data-transfer/import/session/${encodeURIComponent(sessionId)}/chunk/${index}`,
+      importFinalizeStream: (sessionId: string) =>
+        `system/data-transfer/import/session/${encodeURIComponent(sessionId)}/finalize/stream`,
     },
   },
 
@@ -402,6 +420,8 @@ export const endpoints = {
       mailboxes: (serverId: string) => `mail/admin/${encodeURIComponent(serverId)}/mailboxes`,
       mailbox: (serverId: string, email: string) =>
         `mail/admin/${encodeURIComponent(serverId)}/mailboxes/${encodeURIComponent(email)}`,
+      rotatePlatformMailbox: (serverId: string) =>
+        `mail/admin/${encodeURIComponent(serverId)}/platform-mailbox/rotate`,
       aliases: (serverId: string) => `mail/admin/${encodeURIComponent(serverId)}/aliases`,
       alias: (serverId: string, id: number) =>
         `mail/admin/${encodeURIComponent(serverId)}/aliases/${id}`,
@@ -457,6 +477,7 @@ export const endpoints = {
     migration: (id: string) => `migration/migrations/${id}`,
     cutover: (id: string) => `migration/migrations/${id}/cutover`,
     cancel: (id: string) => `migration/migrations/${id}/cancel`,
+    respond: (id: string) => `migration/migrations/${id}/respond`,
     resume: (id: string) => `migration/migrations/${id}/resume`,
     cleanupTarget: (id: string) => `migration/migrations/${id}/cleanup-target`,
     active: "migration/active",
@@ -519,6 +540,7 @@ export const endpoints = {
     open: "issues",
     resolved: "issues?status=resolved",
     health: "issues/health",
+    healthScan: "issues/health/scan",
     rescan: "issues/rescan",
     rescanStatus: "issues/rescan/status",
   },
@@ -566,14 +588,18 @@ export const endpoints = {
   },
 
   /* ---------------------------------------------------------------- */
-  /*  Billing (Stripe-backed cloud billing — SaaS + local-proxy)      */
+  /*  Billing (Oblien-managed — SaaS + local proxy)                  */
   /* ---------------------------------------------------------------- */
   billing: {
+    checkout: "billing/checkout",
     plans: "billing/plans",
     state: "billing/state",
     usage: "billing/usage",
+    resources: "billing/resources",
     topupPacks: "billing/topup-packs",
     subscription: "billing/subscription",
+    cancel: "billing/cancel",
+    resume: "billing/resume",
     topup: "billing/topup",
     portal: "billing/portal",
   },

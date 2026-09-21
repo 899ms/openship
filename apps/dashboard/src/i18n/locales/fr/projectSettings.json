@@ -172,12 +172,15 @@
       "runningStatus": "En cours — {status}"
     },
     "cache": {
-      "title": "Cache",
-      "description": "Videz les artefacts de build et les installations de dépendances mis en cache",
+      "title": "Cache de build Docker",
+      "description": "Le cache de build inutilisé est automatiquement limité à 5 Go par serveur",
       "clearInstall": "Vider le cache d'installation",
       "clearInstallDesc": "Supprimer les node_modules mis en cache",
       "clearBuild": "Vider le cache de build",
-      "clearBuildDesc": "Supprimer la sortie de build mise en cache"
+      "clearBuildDesc": "Supprimer le cache inutilisé du serveur Docker de ce projet",
+      "clearBuildConfirm": "Vider tout le cache de build Docker inutilisé sur ce serveur ? D'autres projets devront peut-être reconstruire leurs dépendances au prochain déploiement.",
+      "clearBuildSuccess": "{size} de cache de build récupérés",
+      "clearBuildEmpty": "Aucun cache de build inutilisé à vider"
     },
     "transfer": {
       "title": "Transfert et clonage",
@@ -362,16 +365,16 @@
       "appliesOnDeploy": "Appliqué au prochain déploiement."
     },
     "env": {
-      "title": "Variables d'environnement",
-      "description": "Chiffrées au repos. Les secrets restent masqués — seules les valeurs que vous modifiez sont écrites.",
+      "title": "Environnement du projet (compilation et exécution partagée)",
+      "description": "Utilisé pour compiler les images et comme entrée partagée à l’exécution. Les valeurs Compose et du service sont prioritaires à l’exécution. Les secrets restent masqués.",
       "edit": "Modifier"
     }
   },
   "envVars": {
     "cancel": "Annuler",
     "saveChanges": "Enregistrer les modifications",
-    "title": "Variables d'environnement",
-    "description": "Production. Chiffrées au repos. Les secrets s'affichent comme définis — saisissez pour remplacer ; laissez vide pour conserver.",
+    "title": "Environnement du projet (compilation et exécution partagée)",
+    "description": "Variables de production du projet. Les secrets restent masqués ; laissez un secret enregistré vide pour le conserver. Les valeurs du service sont prioritaires pour une même clé.",
     "empty": "Aucune variable d'environnement pour le moment.",
     "keyPlaceholder": "CLÉ",
     "secretPlaceholder": "•••••••• (défini — saisir pour remplacer)",
@@ -399,7 +402,7 @@
     },
     "close": "Fermer",
     "applyTitle": "Appliquer sans recompilation",
-    "applyText": "Enregistré. Appliquez-les au service en cours — il redémarre avec le nouvel environnement, sans clonage ni recompilation.",
+    "applyText": "Enregistré. Redémarrez pour appliquer les changements d’exécution. Recompilez et redéployez pour appliquer les valeurs utilisées lors de la compilation d’une image.",
     "applyButton": "Appliquer (redémarrage, sans recompilation)",
     "linkedBadge": "Lié",
     "linkedManaged": "via {app}",
@@ -471,13 +474,13 @@
       "title": "Stratégie de restauration",
       "rebuild": "Reconstruction (git)",
       "instant": "Instantanée (snapshot)",
-      "descRebuild": "Reconstruit l'ancien commit, sauf si son image est encore sur le serveur.",
-      "descInstant": "Conserve l'image de chaque version, donc une restauration ne reconstruit jamais. Utilise plus de disque.",
+      "descRebuild": "Reconstruit l’ancien commit, sauf si son image est encore sur l’hôte.",
+      "descInstant": "Conserve les artefacts dans la limite de l’historique. Les versions plus anciennes peuvent nécessiter une reconstruction.",
       "toggleAria": "Basculer la rétention des snapshots",
-      "keepNone": "Aucune copie supplémentaire",
-      "keepCopies": "Une copie par version",
-      "descRebuildFiles": "Reconstruit l'ancien commit, sauf si ses fichiers sont encore sur le serveur.",
-      "descInstantFiles": "Conserve les fichiers de chaque version, donc une restauration ne reconstruit jamais. Utilise plus de disque."
+      "keepNone": "Réutiliser les images ou reconstruire",
+      "keepCopies": "Conserver les artefacts de retour arrière",
+      "descRebuildFiles": "Reconstruit l’ancien commit, sauf si ses fichiers sont encore sur l’hôte.",
+      "descInstantFiles": "Conserve les fichiers compilés dans la limite de l’historique. Les versions plus anciennes peuvent nécessiter une reconstruction."
     },
     "rollbackHistory": {
       "title": "Historique de restauration",
@@ -487,13 +490,17 @@
       "descGit": "Les images récentes sont conservées de toute façon, donc un rollback peut éviter la compilation.",
       "decreaseAria": "Diminuer l'historique de restauration",
       "increaseAria": "Augmenter l'historique de restauration",
-      "sizeEach": "~{size} chacune",
+      "sizeEach": "~{size} par image, couches partagées incluses",
       "diskFree": "{size} libres",
       "autoBadge": "dimensionné automatiquement",
       "manualBadge": "défini manuellement",
       "kindFiles": "fichiers générés sur le disque",
       "kindImages": "images sur l'hôte",
-      "descGitFiles": "Les fichiers des versions récentes sont conservés de toute façon, donc un rollback peut éviter la compilation."
+      "descGitFiles": "Les fichiers des versions récentes sont conservés de toute façon, donc un rollback peut éviter la compilation.",
+      "retentionHint": "Conservez les artefacts des déploiements récents pour un retour arrière rapide.",
+      "retentionDescription": "Nombre maximal de versions précédentes à conserver. Les versions actives et épinglées ne sont pas comptées dans cette limite. Les anciens artefacts sont supprimés, mais l’historique reste disponible. Indiquez 0 pour ne conserver que les versions actives et épinglées.",
+      "defaultBadge": "valeur par défaut de l’instance",
+      "loadFailed": "Impossible de charger les paramètres de retour arrière."
     },
     "commits": {
       "title": "Commits récents",
@@ -558,6 +565,9 @@
     "title": "Puissance de la machine",
     "description": "Limites de CPU et de mémoire pour les conteneurs de ce projet.",
     "loading": "Lecture de la machine cible…",
+    "unavailable": "Puissance de la machine indisponible",
+    "loadFailed": "Impossible de charger la puissance de la machine",
+    "retry": "Réessayer",
     "machineCapacity": "Machine : {cpu} vCPU · {memory}",
     "exceedsMachine": "Dépasse cette machine",
     "appliesOnNextDeploy": "Les limites s'appliquent à la recréation du conteneur — redéployez pour qu'un changement prenne effet.",
@@ -741,7 +751,7 @@
       "servesPathHint": "Les requêtes vers ce domaine sont servies depuis ce chemin dans la sortie de compilation.",
       "servesPathRedeploy": "Les nouveaux chemins prennent effet au prochain déploiement.",
       "externalIngress": "Ingress et TLS externes",
-      "externalIngressDesc": "Le TLS se termine en amont (Cloudflare Tunnel, équilibreur de charge). Vérification par TXT uniquement — le domaine n'a pas besoin de pointer vers ce serveur, et nous n'émettrons pas de certificat.",
+      "externalIngressDesc": "Le TLS se termine sur votre proxy inverse (Cloudflare Tunnel, Nginx Proxy Manager ou un équilibreur de charge). Le domaine n’a pas besoin de pointer vers ce serveur et Openship n’émettra pas de certificat.",
       "dnsChallenge": "Utiliser le défi DNS-01",
       "dnsChallengeDesc": "Émettez et renouvelez le certificat via votre fournisseur DNS connecté. Utilisez cette option si le port 80 est inaccessible.",
       "dnsChallengeWildcardDesc": "Les certificats génériques nécessitent DNS-01 et un fournisseur DNS connecté.",
@@ -918,5 +928,13 @@
     "saved": "Règle enregistrée",
     "saveFailed": "Échec de l'enregistrement de la règle",
     "loadFailed": "Échec du chargement des règles"
+  },
+  "serviceEnvironment": {
+    "title": "Environnement d’exécution du service",
+    "description": "Ces variables concernent uniquement ce service et remplacent les valeurs correspondantes de Compose ou du projet. Utilisez Appliquer les modifications d’environnement pour activer les valeurs enregistrées.",
+    "overrides": "Ces clés sont prioritaires sur les valeurs du projet pour ce service : {keys}.",
+    "buildArguments": "Les arguments de compilation se définissent dans le fichier Compose ou la configuration du code source et nécessitent une recompilation.",
+    "projectLink": "Modifier l’environnement partagé du projet",
+    "loadFailed": "Impossible de charger les noms des variables du projet pour vérifier les remplacements."
   }
 }

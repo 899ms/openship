@@ -50,24 +50,25 @@ const mockRuntime = vi.hoisted(() => ({
 // Spread the original: mocking this module by NAME with a single export makes
 // every OTHER symbol service.service.ts imports from it undefined.
 const resolveDeploymentRuntimeForRead = vi.hoisted(() => vi.fn());
-vi.mock("../../../src/lib/deployment-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../src/lib/deployment-runtime")>();
+vi.mock("@repo/platform/engine/lib/deployment-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@repo/platform/engine/lib/deployment-runtime")>();
   return { ...actual, resolveDeploymentRuntimeForRead };
 });
 
 const liveContainerIdWithRuntime = vi.hoisted(() => vi.fn());
-vi.mock("../../../src/modules/services/service-container", async (importOriginal) => {
+vi.mock("@repo/platform/engine/modules/services/service-container", async (importOriginal) => {
   const actual = await importOriginal<
-    typeof import("../../../src/modules/services/service-container")
+    typeof import("@repo/platform/engine/modules/services/service-container")
   >();
   return { ...actual, liveContainerIdWithRuntime };
 });
 
-import { restartServiceContainer } from "../../../src/modules/services/service.service";
+import { restartServiceContainer } from "@repo/platform/engine/modules/services/service.service";
 import {
   ServiceConfigStaleError,
+  resolveEnvDirtyServiceIds,
   resolveStaleEnvKeysForService,
-} from "../../../src/modules/deployments/env-drift";
+} from "@repo/platform/engine/modules/deployments/env-drift";
 
 const ctx = { organizationId: "org_1" } as never;
 
@@ -84,7 +85,7 @@ const project = {
   isControlPlane: false,
 };
 
-const deployment = { id: "dep_1", projectId: "proj_1", environment: "production", meta: {} };
+const deployment = { id: "dep_1", organizationId: "org_1", projectId: "proj_1", environment: "production", meta: {} };
 
 const service = { id: "svc_web", projectId: "proj_1", name: "web", enabled: true };
 
@@ -131,7 +132,7 @@ describe("GH-615 restart refuses to silently drop pending env changes", () => {
     expect(err.staleEnvKeys).toEqual(["API_ENDPOINT", "NEW_FLAG"]);
     expect(err.serviceName).toBe("web");
     // Points at the path that actually applies config.
-    expect(err.message).toContain("refresh");
+    expect(err.message).toContain("/apply-env");
     // The refusal is DB-only: it must not bounce the container, and must not
     // have resolved a runtime it would then abandon.
     expect(mockRuntime.restart).not.toHaveBeenCalled();
@@ -197,6 +198,24 @@ describe("GH-615 restart refuses to silently drop pending env changes", () => {
 });
 
 describe("resolveStaleEnvKeysForService", () => {
+  it("clears only the applied service without creating a new deployment", async () => {
+    serviceRepo.listByProject.mockResolvedValue([service, { ...service, id: "svc_other" }]);
+    projectRepo.listEnvVarChangeMeta.mockResolvedValue([
+      { serviceId: null, key: "SHARED", updatedAt: AFTER_ANCHOR },
+      { serviceId: "svc_web", key: "NEWER_SAVE", updatedAt: new Date("2026-08-18T13:00:00Z") },
+    ]);
+    deploymentRepo.findById.mockResolvedValue({
+      ...deployment, createdAt: ANCHOR,
+      meta: { serviceEnvironmentApplied: { svc_web: { containerId: "new-container", appliedAt: "2026-08-18T12:00:00Z" } } },
+    });
+    await expect(resolveStaleEnvKeysForService(project as never, "production", "svc_web")).resolves.toEqual(["NEWER_SAVE"]);
+    await expect(resolveStaleEnvKeysForService(project as never, "production", "svc_other")).resolves.toEqual(["SHARED"]);
+    await expect(resolveEnvDirtyServiceIds(project as never, "production")).resolves.toEqual(new Set(["svc_web", "svc_other"]));
+    projectRepo.listEnvVarChangeMeta.mockResolvedValue([{ serviceId: null, key: "SHARED", updatedAt: AFTER_ANCHOR }]);
+    await expect(resolveEnvDirtyServiceIds(project as never, "production")).resolves.toEqual(new Set(["svc_other"]));
+    await expect(restartServiceContainer(ctx, "proj_1", "svc_web")).resolves.toEqual({ containerId: "c_live_1" });
+  });
+
   it("de-duplicates a key defined at both project and service scope, and sorts", async () => {
     projectRepo.listEnvVarChangeMeta.mockResolvedValue([
       { serviceId: null, key: "SHARED", updatedAt: AFTER_ANCHOR },

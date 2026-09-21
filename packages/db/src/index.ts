@@ -1,5 +1,5 @@
 // ─── Database client ─────────────────────────────────────────────────────────
-export { db, getDriver, getPgPool, closeDb, type Database, type Driver } from "./client";
+export { db, getDriver, getPgPool, closeDb, type Database, type DatabaseTransaction, type Driver } from "./client";
 // The dev hot-reload contract: shutdown must free the PGlite lock inside the
 // successor's takeover grace, or every reload hard-kills the DB mid-close.
 export { DEV_LOCK_TAKEOVER_GRACE_MS, isDevWatchReload } from "./pglite-lock";
@@ -29,6 +29,8 @@ export {
   dumpSubgraph,
   countInstanceSubgraphTables,
   restoreSubgraph,
+  restoreSubgraphInTransaction,
+  assertActiveDeploymentOwnership,
   deleteProjectSubgraph,
   dumpDatabase,
   restoreDatabase,
@@ -52,8 +54,11 @@ export {
   createSessionRepo,
   createAccountRepo,
   createGitInstallationRepo,
+  createGitSourceRepo,
   createProjectGroupRepo,
   createProjectRepo,
+  createCloudDockerWorkspaceRepo,
+  type CloudDockerWorkspace,
   createDeploymentRepo,
   createDomainRepo,
   createServiceRepo,
@@ -62,9 +67,17 @@ export {
   normalizeRoutingFields,
   toComposeSpec,
   composeSpecsEqual,
+  reconcileComposeSpec,
+  unresolvedComposeEnvironmentKeys,
   composeSpecDiff,
   createSettingsRepo,
   createServerRepo,
+  createServerClusterRepo,
+  type ServerClusterRecord,
+  type ClusterVerificationRecord,
+  type ManagedNetworkOperationRecord,
+  createNetworkPreparationRepo,
+  type NetworkPreparationRecord,
   createServerGithubAuthRepo,
   createGithubDeployKeyRepo,
   createServerTunnelRepo,
@@ -77,6 +90,8 @@ export {
   type Account,
   type GitInstallation,
   type NewGitInstallation,
+  type GitSource,
+  type NewGitSource,
   type ProjectGroup,
   type NewProjectGroup,
   type Project,
@@ -134,6 +149,7 @@ export {
   type NewBackupRestore,
   type BackupRunStatus,
   type BackupRestoreStatus,
+  type PolicyLastRunSummary,
   type DockerMigrationRun,
   type NewDockerMigrationRun,
   type DockerMigrationStatus,
@@ -214,3 +230,6 @@ export {
   sql,
   count,
 } from "drizzle-orm";
+export * from "./project-transfer";
+
+export { createComputeClusterRepo, type ComputeClusterRecord } from "./repos/compute-cluster.repo";

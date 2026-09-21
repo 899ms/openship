@@ -48,7 +48,7 @@ describe("pickHostPort's preferred-port contract", () => {
 });
 
 describe("the deploy routes the carried port through the allocator", () => {
-  const src = readFileSync(new URL("./deploy.service.ts", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../../../../../../packages/platform/src/engine/modules/deployments/compose/deploy.service.ts", import.meta.url), "utf8");
   /** The loopback-port allocation block, bounded by its own loop. */
   const block = (() => {
     const from = src.indexOf("for (const containerPort of routedContainerPorts) {");
@@ -73,10 +73,11 @@ describe("the deploy routes the carried port through the allocator", () => {
     expect(block).toContain("pinnedHostPortClaims.push(allocation.claim)");
   });
 
-  it("fails closed on the same target and reports legitimate host migrations", () => {
-    expect(block).toContain("hostPort !== carried");
-    expect(block).toContain("lockPreferred: lockCarriedHostPorts");
-    expect(block).toContain("Project moved hosts");
+  it("relocates unavailable preferences and reports the managed route cutover", () => {
+    expect(block).toContain("allocation.port !== allocation.preferred");
+    expect(block).toContain("reuseOccupiedPreferred:");
+    expect(block).toContain("will update managed routes during cutover");
+    expect(block).not.toContain("lockPreferred");
   });
 
   it("keeps the unreadable-occupancy warning, which is a different failure", () => {

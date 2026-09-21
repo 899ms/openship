@@ -2,8 +2,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { getTableColumns } from "drizzle-orm";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 
-import { db } from "./client";
-import { countInstanceSubgraphTables, dumpSubgraph, restoreSubgraph, topoOrderedTables, type TableSpec } from "./dump";
+import { db, type DatabaseTransaction } from "./client";
+import {
+  countInstanceSubgraphTables,
+  dumpSubgraph,
+  restoreSubgraph,
+  restoreSubgraphInTransaction,
+  topoOrderedTables,
+  type TableSpec,
+} from "./dump";
 
 // The test the data-transfer feature never had: does a whole-instance dump actually
 // RESTORE?
@@ -206,6 +213,43 @@ describe("whole-instance dump → restore round trip", () => {
     )) as Array<Record<string, unknown>>;
     expect(domain?.serviceId).toBe(seeded.get("domain")?.serviceId);
     expect(domain?.serviceId).toBeTruthy();
+  });
+
+  it("lets callers include follow-up work in the same atomic restore transaction", async () => {
+    const projectSpec = topoOrderedTables().find((s) => s.sqlName === "project")!;
+    const [before] = (await db.select().from(projectSpec.table)) as Array<Record<string, unknown>>;
+    const dump = JSON.parse(JSON.stringify(await dumpSubgraph({ kind: "instance" }))) as Awaited<
+      ReturnType<typeof dumpSubgraph>
+    >;
+    dump.tables.project![0]!.name = "must-roll-back";
+
+    await expect(
+      db.transaction(async (rawTx) => {
+        await restoreSubgraphInTransaction(rawTx as DatabaseTransaction, dump, { mode: "wipe" });
+        throw new Error("follow-up write failed");
+      }),
+    ).rejects.toThrow("follow-up write failed");
+
+    const [after] = (await db.select().from(projectSpec.table)) as Array<Record<string, unknown>>;
+    expect(after?.name).toBe(before?.name);
+    expect(after?.name).not.toBe("must-roll-back");
+  });
+
+  it("restores pre-separation network table names without changing approved journal payloads", async () => {
+    const dump = JSON.parse(JSON.stringify(await dumpSubgraph({ kind: "instance" }))) as Awaited<ReturnType<typeof dumpSubgraph>>;
+    const journal = structuredClone(dump.tables.managed_network_operation);
+    for (const [current, legacy] of [
+      ["private_network", "server_cluster"], ["private_network_config", "cluster_network"], ["network_member", "cluster_member"],
+    ]) {
+      dump.tables[legacy!] = dump.tables[current!]!;
+      delete dump.tables[current!];
+    }
+    // Keeping the new pool tables here also checks their references resolve through the renamed parents.
+    await restoreSubgraph(dump, { mode: "wipe" });
+    const restored = JSON.parse(JSON.stringify(await dumpSubgraph({ kind: "instance" }))) as typeof dump;
+    expect(restored.tables.private_network?.[0]?.id).toBe(seeded.get("private_network")?.id);
+    expect(restored.tables.compute_cluster_member).toHaveLength(1);
+    expect(restored.tables.managed_network_operation).toEqual(journal);
   });
 
   it("skips explicitly excluded history tables at query time", async () => {

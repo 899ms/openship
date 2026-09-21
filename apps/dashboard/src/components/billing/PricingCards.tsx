@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { PlanLimits, PlanTierId } from "@repo/core";
 import { useI18n, interpolate } from "@/components/i18n-provider";
+import { PlanResources } from "./PlanResources";
 
 /* ------------------------------------------------------------------ */
 /*  Types — mirror the shape returned by GET /api/billing/plans       */
@@ -50,6 +51,10 @@ export interface ApiPlan {
   effectivePrice: { monthly: number | null };
   campaign: ApiCampaign | null;
   monthlyCredits: number | null;
+  /** Milli-credits granted for an annual cycle, reported separately by Oblien. */
+  annualCredits?: number | null;
+  /** Namespace edge traffic allowance, supplied by the Cloud plan catalog. */
+  edge?: { bandwidthGb: number | null };
   /**
    * The tier's ceilings in CUSTOMER-FACING units, straight off the pricing
    * catalog — typed as the catalog's own `PlanLimits` so a limit added or
@@ -60,7 +65,7 @@ export interface ApiPlan {
   features: string[];
   /** "Everything in X, plus:" — a lead-in, NOT a bullet, so it renders above the
    *  ticked list without a checkmark of its own. */
-  inheritedFrom?: string;
+  inheritedFrom?: string | null;
   support: string;
   contactSales?: string | null;
 }
@@ -99,9 +104,11 @@ export interface ApiPricingUi {
 interface PricingCardsProps {
   plans: ApiPlan[];
   ui: ApiPricingUi;
-  currentPlan?: PlanTierId;
+  currentPlan?: PlanTierId | null;
   onSelectPlan?: (planId: PlanTierId) => void;
   subscribingPlan?: string | null;
+  purchasesDisabled?: boolean;
+  interval?: "monthly" | "annual";
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,11 +128,12 @@ const PLAN_ICON: Record<PlanTierId, React.ReactNode> = {
 function formatPrice(
   cents: number | null,
   ui: ApiPricingUi,
+  interval: "monthly" | "annual" = "monthly",
 ): { label: string; suffix: string | null } {
   if (cents === null) return { label: ui.custom, suffix: null };
   if (cents === 0) return { label: ui.free, suffix: null };
   // Whole dollars stay whole ($39, not $39.00); a cents-precise price keeps them.
-  return { label: `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`, suffix: ui.perMonth };
+  return { label: `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`, suffix: interval === "annual" ? ui.perYear : ui.perMonth };
 }
 
 /**
@@ -135,11 +143,12 @@ function formatPrice(
  * fall back to `price.monthly` — an older API sends only that, and reading it as
  * both list and charged keeps the card correct instead of blank.
  */
-function resolveCardPrice(plan: ApiPlan): {
+function resolveCardPrice(plan: ApiPlan, interval: "monthly" | "annual"): {
   listCents: number | null;
   chargedCents: number | null;
   discounted: boolean;
 } {
+  if (interval === "annual") return { listCents: plan.price.annual, chargedCents: plan.price.annual, discounted: false };
   const listCents = plan.listPrice?.monthly ?? plan.price.monthly;
   const chargedCents = plan.effectivePrice?.monthly ?? listCents;
   return {
@@ -184,6 +193,8 @@ export const PricingCards: React.FC<PricingCardsProps> = ({
   currentPlan = "free",
   onSelectPlan,
   subscribingPlan,
+  purchasesDisabled = false,
+  interval = "monthly",
 }) => {
   const { t, locale } = useI18n();
   // The reader's own calendar for a campaign deadline. Built once per render
@@ -197,10 +208,10 @@ export const PricingCards: React.FC<PricingCardsProps> = ({
   return (
     <div className={`grid gap-5 md:grid-cols-2 lg:grid-cols-3 ${WIDEST_COLUMNS[plans.length] ?? "xl:grid-cols-4"}`}>
       {plans.map((plan) => {
-        const { listCents, chargedCents, discounted } = resolveCardPrice(plan);
+        const { listCents, chargedCents, discounted } = resolveCardPrice(plan, interval);
         // Headline = what the customer pays today; the list price moves beside it.
-        const { label, suffix } = formatPrice(discounted ? chargedCents : listCents, ui);
-        const listLabel = formatPrice(listCents, ui).label;
+        const { label, suffix } = formatPrice(discounted ? chargedCents : listCents, ui, interval);
+        const listLabel = formatPrice(listCents, ui, interval).label;
         const campaign = discounted ? plan.campaign : null;
         // A missing `campaignBadge` still shows the magnitude: "-50%" is a number
         // and a glyph, so it reads the same in every language.
@@ -224,7 +235,7 @@ export const PricingCards: React.FC<PricingCardsProps> = ({
         // No price + a sales address = negotiated tier. The address comes from
         // the catalog; a null price without one is not purchasable either.
         const salesUrl = plan.price.monthly === null ? (plan.contactSales ?? null) : null;
-        const isPaid = plan.price.monthly !== null && plan.price.monthly > 0;
+        const isPaid = plan.price[interval] !== null && plan.price[interval]! > 0;
         const isSubscribing = subscribingPlan === plan.id;
         const icon = PLAN_ICON[plan.id] ?? <Sparkles className="size-5" />;
 
@@ -286,7 +297,7 @@ export const PricingCards: React.FC<PricingCardsProps> = ({
               )}
             </div>
             <p className="mt-1 min-h-[1rem] text-[11px] text-muted-foreground">
-              {isPaid ? ui.billedMonthly : ""}
+              {isPaid ? interval === "annual" ? t.billing.pricing.billedAnnually : ui.billedMonthly : ""}
             </p>
             {endsLabel && (
               <p className="mt-0.5 text-[11px] font-medium text-success">{endsLabel}</p>
@@ -317,7 +328,7 @@ export const PricingCards: React.FC<PricingCardsProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectPlan?.(plan.id)}
-                  disabled={!!subscribingPlan}
+                  disabled={!!subscribingPlan || purchasesDisabled}
                   className={`flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 ${
                     isPopular
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
@@ -336,7 +347,11 @@ export const PricingCards: React.FC<PricingCardsProps> = ({
               ) : null}
             </div>
 
-            {/* Features */}
+            <PlanResources plan={plan} interval={interval} />
+
+            {/* Additional features supplied by the live catalog. */}
+            {plan.features.length > 0 && <details className="mt-auto border-t border-border/30 pt-3 text-sm">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{t.billing.resourcesGuide.moreFeatures}</summary>
             {plan.inheritedFrom ? (
               <p className="border-t border-border/30 pt-5 text-[12px] font-medium text-muted-foreground">
                 {plan.inheritedFrom}
@@ -360,6 +375,7 @@ export const PricingCards: React.FC<PricingCardsProps> = ({
                 </li>
               ))}
             </ul>
+            </details>}
           </div>
         );
       })}

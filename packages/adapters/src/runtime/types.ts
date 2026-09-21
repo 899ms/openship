@@ -40,6 +40,8 @@ import type { ContainerStabilitySample } from "./stability";
  * it actually implements - callers never hit a silent stub.
  */
 export type RuntimeCapability =
+  /** Real Docker container semantics, including a Docker daemon in a cloud workspace. */
+  | "dockerHost"
   | "build"
   /** Acquire and deploy an already-built application container image verbatim. */
   | "prebuiltImage"
@@ -342,6 +344,7 @@ export interface RuntimeAdapter {
     /** Containers to include BEYOND the `openship.project` label match — an adopted
      *  container keeps its original labels, so the filter cannot see it. */
     extraContainerIds?: string[],
+    options?: { prunePrefix?: string; retain?: string[]; strict?: boolean },
   ): Promise<void>;
 
   /**
@@ -353,7 +356,11 @@ export interface RuntimeAdapter {
   joinServiceGroupContainers?(
     slug: string,
     members: Array<{ containerId: string; aliases: string[] }>,
+    options?: { strict?: boolean },
   ): Promise<void>;
+
+  /** Disconnect exact containers from a shared-service network; remove it when empty. */
+  leaveServiceGroupContainers?(slug: string, containerIds: string[]): Promise<void>;
 
   // ── Rollback primitives ──────────────────────────────────────────────
   //
@@ -512,11 +519,15 @@ export interface MultiServiceDeployConfig {
   restart?: string;
   /**
    * Force a fresh `docker pull` of the image tag even when a local copy exists.
-   * Set only for the "update" trigger — a normal deploy/redeploy stays
-   * pull-if-missing so it never surprise-bumps a `:latest` app or defeats the
-   * unchanged-image carry-forward.
+   * Set for explicit update operations and incoming deploy hooks. A normal
+   * manual redeploy stays pull-if-missing so it never surprise-bumps a
+   * `:latest` app or defeats unchanged-image carry-forward.
    */
   forcePull?: boolean;
+  /** The exact image reference was produced/pinned by the orchestrator or was
+   * already pulled during cohort preparation. Docker must not infer this from
+   * the tag text: a registry image can legitimately use Openship's tag shape. */
+  imageAlreadyPrepared?: boolean;
   /** Extended compose fields (healthcheck, …). Docker honors them; runtimes
    *  that can't (cloud) warn-and-drop. See ComposeAdvanced in @repo/core. */
   advanced?: ComposeAdvanced;
@@ -530,6 +541,10 @@ export interface MultiServiceDeployConfig {
   publicSlug?: string;
   customDomain?: string;
   expose?: boolean;
+  /** All approved Cloud hostnames for this service, including secondary ports. */
+  cloudEndpoints?: Array<{ hostname: string; port: number; custom: boolean }>;
+  /** Ports needed by project/composite edge routes, without a service hostname. */
+  cloudProxyPorts?: number[];
   /** Cloud only: the workspace id this service used in the PREVIOUS deployment.
    *  Reused so its permanent-workspace disk — the only persistence Oblien
    *  offers (no volume primitive) — survives a redeploy. A fresh workspace each
@@ -560,6 +575,8 @@ export interface MultiServiceDeployConfig {
 export interface MultiServiceDeployResult {
   containerId: string;
   status: string;
+  /** The container is running, but one or more edge routes need a retry. */
+  routeWarnings?: string[];
   ip?: string;
   /** The FIRST binding the daemon reports — arbitrary for a multi-port container.
    *  Anything picking a proxy target for a SPECIFIC container port must read
@@ -745,6 +762,8 @@ export interface DockerContainerDetail {
   restart?: { name: string; maximumRetryCount?: number };
   /** Names of the networks the container is attached to. */
   networks: string[];
+  /** Live addresses on every attached network, for matching proxy upstreams. */
+  networkAddresses?: string[];
   mounts: DockerMount[];
   ports: DockerPortBinding[];
   /** Healthcheck as declared on the container config (durations in ns). */

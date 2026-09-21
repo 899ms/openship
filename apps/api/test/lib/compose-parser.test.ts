@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { serializeEnvFile } from "@repo/core";
 import {
   blockingComposeFields,
   parseComposeEnvFile,
   parseComposeFile,
   resolveComposeEnvironmentTemplates,
-} from "../../src/lib/compose-parser";
+} from "@repo/platform/engine/lib/compose-parser";
 
 describe("parseComposeFile", () => {
   it("resolves Docker Compose environment interpolation from .env content", () => {
@@ -31,6 +32,11 @@ EMPTY_VALUE=
     );
 
     expect(parsed.services[0]?.image).toBe("node:20");
+    expect(parsed.services[0]?.advanced?.imageTemplate).toEqual({
+      expression: "node:${NODE_VERSION:-22}",
+      unresolvedVariables: [],
+      sourceValue: "node:20",
+    });
     expect(parsed.services[0]?.environment).toEqual({
       BETTER_AUTH_SECRET: "from-env",
       DATABASE_URL: "postgres://openship:secret@db:5432/app",
@@ -47,6 +53,21 @@ EMPTY_VALUE=
       variable: "EMPTY_VALUE",
       defaultValue: "fallback",
       resolvedValue: "fallback",
+    });
+  });
+
+  it("retains image interpolation provenance and ordinary missing variables", () => {
+    const service = parseComposeFile(`
+services:
+  app:
+    image: ghcr.io/acme/app:\${RELEASE_CHANNEL}-\${VERSION}
+`).services[0]!;
+
+    expect(service.image).toBe("ghcr.io/acme/app:-");
+    expect(service.advanced?.imageTemplate).toEqual({
+      expression: "ghcr.io/acme/app:${RELEASE_CHANNEL}-${VERSION}",
+      unresolvedVariables: ["RELEASE_CHANNEL", "VERSION"],
+      sourceValue: "ghcr.io/acme/app:-",
     });
   });
 
@@ -315,6 +336,34 @@ BAZ=qux
     expect(parseComposeEnvFile('BLOCK="never closed\nAFTER=ok')).toEqual({
       BLOCK: "never closed",
       AFTER: "ok",
+    });
+  });
+
+  it("loads downloaded production variables without expanding or truncating secrets", () => {
+    const rows = [
+      { key: "REF", value: "must-not-be-substituted" },
+      { key: "PASSWORD", value: "user's${REF} $REF $$ 'single' \"double\" `backtick`" },
+      { key: "PATH_VALUE", value: "  C:\\new\\folder\\" },
+      { key: "CERT", value: "first\r\nNEXT=still part of the certificate\nlast\n" },
+      { key: "ESCAPES", value: "'literal \\n and real\nnewline'" },
+      { key: "__proto__", value: "valid-environment-key" },
+      { key: "AFTER", value: "intact" },
+    ];
+    expect(parseComposeEnvFile(serializeEnvFile(rows))).toEqual(Object.fromEntries(rows.map(({ key, value }) => [key, value])));
+  });
+
+  it("interpolates unescaped references while preserving escaped dollars and closing backslashes", () => {
+    expect(parseComposeEnvFile(String.raw`REF=expanded
+VALUE="\$REF $REF \${REF} \\\$REF"
+PATH_VALUE="ends with\\"
+AFTER=ok`)).toEqual({
+      REF: "expanded", VALUE: "$REF expanded ${REF} \\$REF", PATH_VALUE: "ends with\\", AFTER: "ok",
+    });
+  });
+
+  it("uses the last assignment's interpolation rule for duplicate keys", () => {
+    expect(parseComposeEnvFile("REF=value\nA=$REF\nA='$REF'\nB='$REF'\nB=$REF")).toEqual({
+      REF: "value", A: "$REF", B: "value",
     });
   });
 
@@ -829,6 +878,11 @@ services:
   it(":? reports instead of throwing when the variable is unset", () => {
     const parsed = parseComposeFile(compose("NODE_VERSION:?NODE_VERSION is required"));
     expect(parsed.services[0]?.image).toBe("node:");
+    expect(parsed.services[0]?.advanced?.imageTemplate).toEqual({
+      expression: "node:${NODE_VERSION:?NODE_VERSION is required}",
+      unresolvedVariables: ["NODE_VERSION"],
+      sourceValue: "node:",
+    });
     expect(parsed.missingRequired).toEqual([
       { variable: "NODE_VERSION", message: "NODE_VERSION is required" },
     ]);

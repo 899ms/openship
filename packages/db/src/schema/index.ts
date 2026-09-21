@@ -1,4 +1,5 @@
 export { user, session, account, verification } from "./auth";
+export { externalIdentity, externalNamespace, platformInstance } from "./embedding";
 export { organization, member, invitation } from "./organization";
 export { auditEvent } from "./audit-event";
 export { auditSettings } from "./audit-settings";
@@ -8,8 +9,9 @@ export { orphanedResource } from "./orphaned-resource";
 export { hostPortClaim } from "./host-port-claim";
 export { resourceGrant } from "./resource-grant";
 export { invitationPendingGrant } from "./invitation-pending-grant";
+export { gitSource } from "./git-source";
 export { gitInstallation } from "./github";
-export { githubInstallState } from "./github-install-state";
+export { githubInstallState, type GithubInstallStatePayload } from "./github-install-state";
 export { projectGroup, project, envVar } from "./project";
 export { deployment, buildSession } from "./deployment";
 export { domain } from "./domain";
@@ -28,12 +30,23 @@ export { serverContainerStatus, type ServerContainerDetail } from "./server-cont
 export { edgeTargetVerification } from "./edge-target-verification";
 export { serviceIncident, INCIDENT_KINDS, type IncidentKind } from "./service-incident";
 export { cloudWebhookBinding } from "./cloud-webhook-binding";
+export { cloudDockerWorkspace } from "./cloud-docker-workspace";
 export { projectConnection } from "./project-connection";
 export { webhookDelivery } from "./webhook-delivery";
 export { service, serviceDeployment } from "./service";
 export { deploymentCheckRun } from "./deployment-check-run";
 export { userSettings, instanceSettings } from "./settings";
 export { servers } from "./servers";
+export {
+  serverCluster,
+  clusterNetwork,
+  clusterMember,
+  serverNetworkAttachment,
+  clusterVerification,
+  managedNetworkOperation,
+  managedNetworkClaim,
+  managedNetworkPreparation,
+} from "./server-cluster";
 export { serverGithubAuth, githubDeployKey } from "./server-github";
 export { serverTunnels } from "./server-tunnel";
 export { mailServers, mailInboundRule } from "./mail";
@@ -42,6 +55,7 @@ export { resourceUsage, RESOURCE_BUCKET_MINUTES, SINGLE_APP_SERVICE_KEY } from "
 export { terminalSessions } from "./terminal-sessions";
 export { serviceTerminalSessions } from "./service-terminal-sessions";
 export { cloudHandoffCode } from "./cloud-handoff-code";
+export { dataTransferSession, dataTransferChunk } from "./data-transfer";
 export { personalAccessToken } from "./personal-access-token";
 export { personalAccessTokenGrant } from "./personal-access-token-grant";
 export { oauthApplication, oauthAccessToken, oauthConsent } from "./oauth";
@@ -66,3 +80,5 @@ export {
 export { customAppTemplate } from "./custom-app-template";
 export { dnsCredential } from "./dns-credential";
 export { credential } from "./credential";
+
+export { computeCluster, computeClusterMember } from "./compute-cluster";

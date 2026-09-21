@@ -47,6 +47,7 @@ export type {
 export {
   sq,
   assembleGitClone,
+  gitShellCommand,
   injectGitToken,
   gitCredentialPair,
   toGitHubSshUrl,
@@ -82,8 +83,11 @@ export {
   DockerRuntime,
   buildNetworkAliases,
   ownsBuiltImage,
+  type BuildCachePruneOptions,
+  type BuildCachePruneResult,
   type DockerConnectionOptions,
 } from "./runtime/docker";
+export { containerInfoFromDockerSummary } from "./runtime/docker-container-info";
 // The pull-auth shape, so the API can type the credential resolver it injects (#581).
 export type { DockerRegistryAuth } from "./runtime/docker-auth";
 export {
@@ -112,6 +116,9 @@ export {
   PAGE_CONTAINER_PREFIX,
   provisionCloudWorkspace,
 } from "./runtime/cloud";
+export { CloudDockerRuntime, CLOUD_DOCKER_IMAGE, type CloudDockerOptions } from "./runtime/cloud/docker";
+export { cloudWorkspaceStatus, waitForCloudDockerWorkspace } from "./runtime/cloud/workspace-ready";
+export { CloudWorkspaceExecutor } from "./runtime/cloud/workspace-executor";
 export { BuildLogger } from "./runtime/build-pipeline";
 export {
   type DeployEnvironment,
@@ -167,6 +174,9 @@ export {
 // ─── Infrastructure layer ────────────────────────────────────────────────────
 export type { RoutingProvider, SslProvider, ProvisionCertOptions } from "./infra/types";
 export { NginxProvider, type NginxProviderOptions, type RateLimitConfig } from "./infra/nginx";
+// For the upstream-down e2e in apps/api: it asserts on the real marker rather than a copy of
+// the string, which could drift from the page it is checking for.
+export { EDGE_UPSTREAM_DOWN_SENTINEL } from "./infra/edge-upstream-down";
 export {
   compileVercelRouting,
   sourceToLocation,
@@ -210,6 +220,11 @@ export {
   MAIL_DB_USER,
   MAIL_DB_HOST_BIND,
   MAIL_DB_PORT,
+  MAIL_DB_DEFAULT_PORT,
+  MAIL_DB_FALLBACK_PORT,
+  MAIL_DB_PORT_RANGE_MAX,
+  MAIL_DB_INTERNAL_PORT,
+  resolveMailDbPort,
   type MailMount,
 } from "./infra/mail-container";
 
@@ -280,6 +295,9 @@ export {
   detectMailContainer,
   verifyMailEngine,
   buildMailRunCommand,
+  buildDbRunCommand,
+  retainedDbPort,
+  findAvailableMailDbPort,
   MAIL_DB_IMAGE,
   type ContainerMailOptions,
   type ContainerMailResult,
@@ -368,6 +386,7 @@ export { elevatedExecutor, elevateCommand } from "./system/elevated-executor";
 export type { Privileged, RootChecked } from "./system/privilege";
 export { privilegedExecutor, rootChecked, rootOrDegrade } from "./system/privilege";
 export { systemCatalog, MIN_DOCKER_VERSION } from "./system/catalog";
+export { SERVER_STATS_COMMAND } from "./system/server-stats";
 // Native-module versioning + migration framework (verify → reconcile).
 export {
   resolveVerifiedCatalog,
@@ -386,6 +405,10 @@ export {
   type OnBoxManifest,
 } from "./system/modules";
 export { SYSTEM_COMPONENTS, getSystemComponentDefinition } from "./system/components";
+export {
+  REMOTE_SERVER_REQUIRED_COMPONENTS,
+  resolveSystemComponentInstallPlan,
+} from "./system/requirements";
 export {
   isRemoteConnectionError,
   isRetryableRemoteConnectionError,
@@ -480,6 +503,7 @@ export {
   checkAll as checkAllComponents,
   checkComponents,
   checkDocker,
+  needsDockerGroupRefresh,
   checkGit,
   checkEdge,
   COMPONENT_CHECKS,
@@ -546,7 +570,7 @@ export {
 } from "./platform";
 
 // ─── Oblien SDK (re-export for single source of truth) ───────────────────────
-export { Oblien } from "oblien";
+export { Oblien } from "./oblien";
 export type {
   NamespaceUsageUnits,
   NamespaceUsageUnitBucket,
@@ -555,3 +579,13 @@ export type {
 
 // ─── Backup adapters (importing the index seeds all three registries) ───────
 export * from "./backup";
+export {
+  privateNetworkTools,
+  PrivateNetworkError,
+  type PrivateNetworkProbe,
+} from "./network/private-network";
+export {
+  managedNetworkTools,
+  type ManagedHostTransaction,
+  type ManagedHostReceipt,
+} from "./network/managed-network";

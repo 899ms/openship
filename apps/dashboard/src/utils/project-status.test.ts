@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { DEPLOYMENT_HISTORY_STATUSES, type DeploymentHistoryFilter } from "@repo/core";
 
 import {
   PROJECT_STATUS_META,
   getProjectAttentionReason,
   getProjectStatus,
   migrationNeedsOperator,
+  projectActionHref,
   projectDisplayDomain,
   projectStatusHint,
+  projectStatusHref,
   projectStatusLabel,
 } from "./project-status";
 import { baseDictionary as en } from "@/i18n";
@@ -14,6 +17,7 @@ import {
   calculateDeploymentStats,
   filterDeployments,
   getStatusConfig,
+  mapRowToDeployment,
 } from "@/app/(dashboard)/deployments/utils";
 import type { Deployment } from "@/app/(dashboard)/deployments/types";
 
@@ -99,23 +103,23 @@ describe("getProjectStatus — a failed latest deploy is never Live", () => {
     ).toBe("failed");
   });
 
-  it("reports attention — not live — when an older release serves and the newest deploy failed", () => {
-    // The site IS up, so "failed" would be a lie; the newest deploy died, so
-    // "live" hides it. Same signal the other operator-needed states use.
+  it("reports deploy failed — not action required — when an older release still serves", () => {
+    // There is nothing pending for the operator to answer. The new attempt died,
+    // while the narrower label also preserves the fact that the site is still up.
     expect(
       getProjectStatus({
         activeDeploymentId: "d1",
         latestDeploymentId: "d2",
         latestDeploymentStatus: "failed",
       }),
-    ).toBe("attention");
+    ).toBe("deploy_failed");
   });
 
-  it("reports attention for a failed latest even when the caller omits latestDeploymentId", () => {
+  it("reports deploy failed when the caller omits latestDeploymentId", () => {
     // Environment summaries pass activeDeploymentId + status only. A failure
     // never advances the pointer, so a set pointer means an older release.
     expect(getProjectStatus({ activeDeploymentId: "d1", latestDeploymentStatus: "failed" })).toBe(
-      "attention",
+      "deploy_failed",
     );
   });
 
@@ -129,6 +133,72 @@ describe("getProjectStatus — a failed latest deploy is never Live", () => {
     expect(getProjectStatus({ appTemplateId: "openship", latestDeploymentStatus: "failed" })).toBe(
       "live",
     );
+  });
+
+  it("reports reconciliation as progress, not as an action", () => {
+    const project = {
+      id: "p1",
+      activeDeploymentId: "d1",
+      latestDeploymentId: "d2",
+      latestDeploymentStatus: "reconciling",
+    };
+    expect(getProjectStatus(project)).toBe("reconciling");
+    expect(getProjectAttentionReason(project)).toBeNull();
+    expect(projectActionHref(project)).toBeNull();
+  });
+
+  it("does not resurrect an action after the operator rejected a partial release", () => {
+    expect(
+      getProjectStatus({
+        activeDeploymentId: "d1",
+        latestDeploymentId: "d2",
+        latestDeploymentStatus: "rejected",
+      }),
+    ).toBe("live");
+  });
+});
+
+describe("projectActionHref — every action badge has an owner", () => {
+  it.each([
+    [
+      "partial-release decision",
+      { id: "p1", activeDeploymentId: "live", awaitingDecision: true },
+      "/build/live",
+    ],
+    [
+      "routing repair",
+      { id: "p1", activeDeploymentId: "live", routingUnsynced: true },
+      "/projects/p1/domains",
+    ],
+    [
+      "blocked deployment",
+      { id: "p1", latestDeploymentId: "d2", latestDeploymentStatus: "action_required" },
+      "/projects/p1/deployments",
+    ],
+    [
+      "migration cutover",
+      {
+        id: "p1",
+        activeMigration: { id: "m1", status: "awaiting_cutover", mode: "project_move" },
+      },
+      "/projects/p1/advanced",
+    ],
+  ])("routes %s to its resolution surface", (_name, project, href) => {
+    expect(getProjectStatus(project)).toBe("attention");
+    expect(projectActionHref(project)).toBe(href);
+  });
+
+  it("returns no action link for an ordinary failed deployment", () => {
+    const project = {
+      id: "p1",
+      activeDeploymentId: "d1",
+      latestDeploymentId: "d2",
+      latestDeploymentStatus: "failed",
+    };
+    expect(getProjectStatus(project)).toBe("deploy_failed");
+    expect(getProjectAttentionReason(project)).toBeNull();
+    expect(projectActionHref(project)).toBeNull();
+    expect(projectStatusHref(project)).toBe("/build/d2");
   });
 });
 
@@ -149,6 +219,13 @@ describe("projectDisplayDomain — only a persisted route", () => {
 });
 
 describe("deployments list — a blocked deploy is visible and counted", () => {
+  it("uses the API's groups for every filter and page statistic", () => {
+    for (const [group, statuses] of Object.entries(DEPLOYMENT_HISTORY_STATUSES)) {
+      const rows = statuses.map((status) => mapRowToDeployment({ id: status, status }));
+      expect(filterDeployments(rows, { status: group as DeploymentHistoryFilter })).toHaveLength(statuses.length);
+      expect(calculateDeploymentStats(rows)[group as DeploymentHistoryFilter]).toBe(statuses.length);
+    }
+  });
   it("gets its own chip instead of falling through to Pending", () => {
     const config = getStatusConfig("action_required");
     expect(config.label).toBe("Action required");

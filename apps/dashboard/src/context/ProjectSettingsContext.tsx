@@ -9,8 +9,7 @@ import React, {
   useRef,
   useMemo,
 } from "react";
-import { isServicesFramework, type ReleaseSource, type WorkloadType } from "@repo/core";
-import { isSchemaAppTemplate } from "@/components/app-settings/AppSettingsForm";
+import type { ReleaseSource, WorkloadType } from "@repo/core";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/components/i18n-provider";
 import { usePlatform } from "@/context/PlatformContext";
@@ -220,6 +219,18 @@ interface ServicesData {
   error: string | null;
 }
 
+interface ProjectTab {
+  id: string;
+  label: string;
+  icon: string;
+  /** Sections keep their existing routes inside a shared navigation group. */
+  sections?: { id: string; label: string }[];
+}
+
+function findTabGroup(tabs: ProjectTab[], tabId: string) {
+  return tabs.find((tab) => tab.id === tabId || tab.sections?.some((section) => section.id === tabId));
+}
+
 interface ProjectSettingsContextType {
   // Project basic data
   projectData: BasicProjectData;
@@ -289,12 +300,13 @@ interface ProjectSettingsContextType {
   setSelectedDomain: (domain: string) => void;
   slug?: string[]; // Optional array for catch-all routes
   activeTab: string;
+  activeTabGroup: string;
   setActiveTab: (tab: string) => void;
   /** One-shot intent from the sidebar's "Add domain" affordance: the Domains
    *  tab opens its add-domain form on arrival, then clears it back to null. */
   pendingDomainAction: "add" | null;
   setPendingDomainAction: (action: "add" | null) => void;
-  tabs: { id: string; label: string; icon: string }[];
+  tabs: ProjectTab[];
 }
 
 const ProjectSettingsContext = createContext<ProjectSettingsContextType | undefined>(undefined);
@@ -520,17 +532,17 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
     return { url: null, host: null, kind: "none", isLocal: false, urls: [] };
   }, [projectData]);
 
-  // Shared domain selection driving the overview URL + analytics: the sidebar
-  // switcher writes it, OverviewTab/MonitoringTab read it to refetch per-domain.
-  // Defaults to the primary and snaps back to it when the current pick drops out
-  // of the project's domains. (The /logs view keeps its own separate selection.)
-  const [selectedDomain, setSelectedDomain] = useState("");
-  useEffect(() => {
-    const available = (projectData.domains || [])
-      .map((d: any) => d?.domain)
-      .filter((d: unknown): d is string => typeof d === "string" && d.length > 0);
-    setSelectedDomain((current) => (current && available.includes(current) ? current : domain));
-  }, [domain, projectData.domains]);
+  // Derive the default during render: a parent effect runs after its children
+  // and would let Overview start an expensive unscoped analytics request first.
+  // Keep explicit choices tied to the project, and use the primary if removed.
+  const [domainChoice, setDomainChoice] = useState<{ projectId: string; domain: string } | null>(null);
+  const availableDomains = projectData.id === id ? projectData.domains ?? [] : [];
+  const selectedDomain = projectData.id !== id ? "" :
+    domainChoice?.projectId === id && availableDomains.some((d) => d.domain === domainChoice.domain)
+      ? domainChoice.domain : domain;
+  const setSelectedDomain = useCallback((domain: string) => {
+    setDomainChoice({ projectId: id, domain });
+  }, [id]);
 
   // Derived: do we have multi-service rendering paths to enable?
   // projectData hint OR serviceCount > 1 OR loaded services > 1.
@@ -945,18 +957,11 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
     return tab || undefined; // let default be set by tab list below
   };
 
-  // Service-FIRST = the project itself is a compose/services-stack project (no
-  // single primary app). Keyed on the framework, NOT on "a service row exists"
-  // — a single/static app that had a sidecar service added is still an app and
-  // KEEPS its Configuration tab. Only a genuine compose project drops it.
-  const isServicesProject = isServicesFramework(projectData.framework);
-  // A schema app keeps its Configuration tab even when it's a compose/services
-  // project — that tab hosts the "App settings | Deployment" 2-mode surface.
-  const isSchemaApp = !!projectData.isApp && isSchemaAppTemplate(projectData.appTemplateId);
-  const tabs = useMemo(() => {
+  const tabs = useMemo<ProjectTab[]>(() => {
     const tl = t.projects.sidebar.tabs;
     const all = [
       { id: "overview", label: tl.overview, icon: "setting-100-1658432731.png" },
+      { id: "topology", label: tl.topology, icon: "layers.png" },
       { id: "services", label: tl.services, icon: "layers.png" },
       { id: "domains", label: tl.domains, icon: "server-59-1658435258.png" },
       { id: "deployments", label: tl.deployments, icon: "heart%20rate-118-1658433496.png" },
@@ -966,34 +971,44 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
       // RuntimeAdapter.getUsage (dockerode | Oblien metrics) and visitor geography
       // via the traffic-source resolver (OpenResty mgmt API | Oblien analytics).
       { id: "monitoring", label: tl.monitoring, icon: "chart-1658432731.png" },
-      { id: "source", label: tl.source, icon: "git%20branch-159-1658431404.png" },
-      { id: "webhooks", label: tl.webhooks, icon: "git%20branch-159-1658431404.png" },
-      { id: "runtime", label: tl.runtime, icon: "setting-40-1662364403.png" },
+      {
+        id: "source",
+        label: tl.sourceAndTriggers,
+        icon: "git%20branch-159-1658431404.png",
+        sections: [
+          { id: "source", label: tl.source },
+          { id: "webhooks", label: tl.webhooks },
+        ],
+      },
       { id: "logs", label: tl.logs, icon: "terminal-184-1658431404.png" },
       { id: "backup", label: tl.backup, icon: "database.png" },
-      { id: "advanced", label: tl.advanced, icon: "error%20triangle-81-1658234612.png" },
+      {
+        id: "runtime",
+        label: tl.settings,
+        icon: "setting-40-1662364403.png",
+        sections: [
+          { id: "runtime", label: tl.runtime },
+          { id: "advanced", label: tl.advanced },
+        ],
+      },
     ];
     const isCloud = projectData.deployTarget === "cloud";
     return all.filter((tab) => {
-      // A service-first project has no single-app runtime — config lives per
-      // service under Services — so hide the Configuration (runtime) tab there.
-      // A schema app keeps it, though: it's the home of the 2-mode config.
-      if (isServicesProject && !isSchemaApp && tab.id === "runtime") return false;
+      // Configuration also owns shared project environment for service projects.
       // Health is fed by the self-hosted container health watch, so it needs BOTH
       // halves to be true: the control plane has to be the always-on self-hosted
       // one that runs the watch job (not SaaS, not desktop), and the workload has
       // to be a container we can poll (Oblien exposes no stability probe).
       if (tab.id === "health" && (!isServerHost || isCloud)) return false;
-      // The Webhooks tab is shown on cloud too: the managed GitHub push→deploy
-      // entry, custom deploy hooks, and the delivery feed all apply on SaaS. Only
-      // the `job` action + the self-hosted webhook-domain picker are gated by mode
-      // inside the tab (job is refused server-side in CLOUD_MODE).
+      // Source & Triggers is available on cloud too. Webhook job actions and
+      // the self-hosted webhook-domain picker remain gated inside their section.
       return true;
     });
-  }, [t, isServicesProject, isSchemaApp, projectData.deployTarget, isServerHost]);
+  }, [t, projectData.deployTarget, isServerHost]);
 
   const defaultTab = tabs[0].id;
   const [activeTab, setActiveTab] = useState(resolveTab(slug?.[0]) || defaultTab);
+  const activeTabGroup = findTabGroup(tabs, activeTab)?.id || defaultTab;
   const [pendingDomainAction, setPendingDomainAction] = useState<"add" | null>(null);
 
   useEffect(() => {
@@ -1005,8 +1020,7 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
   useEffect(() => {
     const resolved = resolveTab(slugTab) || defaultTab;
     // If the resolved tab isn't valid for this project type, fall back to default
-    const validIds = tabs.map((t) => t.id);
-    const target = validIds.includes(resolved) ? resolved : defaultTab;
+    const target = findTabGroup(tabs, resolved) ? resolved : defaultTab;
     if (target !== activeTab) {
       setActiveTab(target);
     }
@@ -1059,6 +1073,7 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
       setSelectedDomain,
       slug,
       activeTab,
+      activeTabGroup,
       setActiveTab,
       pendingDomainAction,
       setPendingDomainAction,
@@ -1097,8 +1112,10 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
       domain,
       access,
       selectedDomain,
+      setSelectedDomain,
       slug,
       activeTab,
+      activeTabGroup,
       pendingDomainAction,
       tabs,
     ],

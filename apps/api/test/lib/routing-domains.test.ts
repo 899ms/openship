@@ -13,12 +13,12 @@ vi.mock("@repo/db", () => ({
   },
 }));
 
-vi.mock("../../src/lib/domain-claims", () => ({
+vi.mock("@repo/platform/engine/lib/domain-claims", () => ({
   routableWithoutOwnership: vi.fn().mockResolvedValue(false),
 }));
 
 // The per-host ACME lock talks to Postgres in prod; make it a pass-through here.
-vi.mock("../../src/lib/provision-lock", () => ({
+vi.mock("@repo/platform/engine/lib/provision-lock", () => ({
   createProvisionLock: () => ({ run: (fn: () => unknown) => fn() }),
 }));
 
@@ -36,7 +36,7 @@ import {
   resolveRouteDestination,
   resolveServiceEndpointHostname,
   withEnsuredDomainRecord,
-} from "../../src/lib/routing-domains";
+} from "@repo/platform/engine/lib/routing-domains";
 
 describe("ensureRouteDomainRecord", () => {
   const route = {
@@ -571,7 +571,15 @@ describe("createTrackedSslProvider (deploy-time issuance)", () => {
         return result;
       }),
       renewCert: vi.fn(),
-      verifyCert: vi.fn(),
+      verifyCert: vi.fn().mockResolvedValue(
+        result ?? {
+          domain: "app.example.com",
+          verified: false,
+          expiresAt: "",
+          issuer: "",
+          reason: "missing",
+        },
+      ),
       installCert: vi.fn(),
     }) as any;
 
@@ -772,7 +780,8 @@ describe("collectUncertifiedRouteWarnings", () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0]).toContain("api.example.com");
-    expect(out[0]).toContain("DNS");
+    expect(out[0]).toContain("no usable HTTPS certificate was found");
+    expect(out[0]).not.toContain("DNS");
   });
 
   it("prefers the row's recorded failure reason when there is one", () => {

@@ -11,6 +11,7 @@ import { generateIcon } from "@/utils/icons";
 import { useRouter } from "next/navigation";
 import { useDeployment } from "@/context/DeploymentContext";
 import { useModal } from "@/context/ModalContext";
+import { useCloudDeployPricing } from "@/hooks/useCloudDeployPricing";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/context/ToastContext";
 import { useTheme } from "@/components/theme-provider";
@@ -40,6 +41,7 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
   const { config, state, onTerminalReady, stopDeployment, respondToPrompt, deploymentStatus } =
     useDeployment();
   const { showModal, hideModal } = useModal();
+  const showCloudPricing = useCloudDeployPricing();
   const { showToast } = useToast();
   const { resolvedTheme } = useTheme();
   const { t } = useI18n();
@@ -260,6 +262,11 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
       const newId = res?.data?.deployment?.id;
       router.push(newId ? `/build/${newId}` : `/projects/${state.projectId}`);
     } catch (err) {
+      if (showCloudPricing(err)) {
+        // A quota refusal created no build. Keep the failed-service retry available.
+        setDecisionResolved(false);
+        return;
+      }
       // Usually a deploy is already in progress (the previous retry) → 403. Do
       // NOT re-fire; send the user to the project where the running deploy shows.
       showToast(err instanceof Error ? err.message : cd.toast.retryFailMsg, "error", cd.toast.retryTitle);
@@ -267,7 +274,7 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
     } finally {
       retryInFlightRef.current = false;
     }
-  }, [state.serviceStatuses, state.decisionFailedServiceIds, state.projectId, router, showToast, cd]);
+  }, [state.serviceStatuses, state.decisionFailedServiceIds, state.projectId, router, showToast, showCloudPricing, cd]);
 
   // Auto-open the decision dialog once per deployment when a partial failure is
   // awaiting a decision. Closing it leaves the persistent banner in place, so the
@@ -451,6 +458,14 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
                 ) : (
                   cd.stopDeployment
                 )}
+              </button>
+            ) : state.cancellationPending ? (
+              <button
+                disabled
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm bg-muted text-muted-foreground cursor-not-allowed"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {cd.stopping}
               </button>
             ) : (
               <>
