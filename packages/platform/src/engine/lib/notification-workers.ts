@@ -34,74 +34,142 @@ interface RenderedMessage {
   body: string;
 }
 
-/**
- * Turn a delivery's payload into a human-readable message. We use the
- * category for the title (stable across event types) and pull relevant
- * payload fields into the body. Channel-specific formatting (HTML for
- * email, Slack blocks) wraps this primitive output.
- *
- * Exported for the message tests: this is the function that decides what an operator
- * actually reads, and the payload's `eventType` can disagree with its category's
- * direction (see `headlineForEventType`).
- */
-export function renderMessage(delivery: NotificationDelivery): RenderedMessage {
+interface NotificationField {
+  label: string;
+  value: string;
+  kind?: "url" | "error" | "logs";
+}
+
+/** One content definition for all channel formats, including HTML and plaintext. */
+function notificationContent(delivery: NotificationDelivery) {
   const cat = findCategory(delivery.category);
   const payload = (delivery.payload ?? {}) as Record<string, unknown>;
-
-  // A handful of event types share a category with their own opposite — the toggle is
-  // one subscription, the message is one event — and carry their own headline.
   const own =
     typeof payload.eventType === "string" ? headlineForEventType(payload.eventType) : undefined;
-  const title = own?.title ?? cat?.label ?? delivery.category;
+  const fields: NotificationField[] = [];
 
-  // Build a body from the payload's most useful fields. Workers can
-  // override formatting if they want — Slack does because blocks beat
-  // plain text — but this default works for email + webhook + in-app.
-  const lines: string[] = [];
-
-  const description = own?.description ?? cat?.description;
-  if (description) lines.push(description);
-  if (payload.message) lines.push(String(payload.message));
-  if (payload.projectName) lines.push(`Project: ${payload.projectName}`);
-  if (payload.serviceName) lines.push(`Service: ${payload.serviceName}`);
+  if (payload.projectName) fields.push({ label: "Project", value: String(payload.projectName) });
+  if (payload.serviceName) fields.push({ label: "Service", value: String(payload.serviceName) });
   if (payload.policyName || payload.policyId) {
-    lines.push(`Policy: ${payload.policyName ?? payload.policyId}`);
+    fields.push({ label: "Policy", value: String(payload.policyName ?? payload.policyId) });
   }
   if (payload.destinationName || payload.destinationId) {
-    lines.push(`Destination: ${payload.destinationName ?? payload.destinationId}`);
+    fields.push({
+      label: "Destination",
+      value: String(payload.destinationName ?? payload.destinationId),
+    });
   }
   if (payload.jobName || payload.label) {
-    lines.push(`Job: ${payload.jobName ?? payload.label}`);
+    fields.push({ label: "Job", value: String(payload.jobName ?? payload.label) });
   }
-
-  if (payload.branch) lines.push(`Branch: ${payload.branch}`);
-  if (payload.commitSha) {
-    const sha = String(payload.commitSha).slice(0, 8);
-    lines.push(`Commit: ${sha}`);
-  }
-  if (payload.url) lines.push(`URL: ${payload.url}`);
+  if (payload.branch) fields.push({ label: "Branch", value: String(payload.branch) });
+  if (payload.commitSha)
+    fields.push({ label: "Commit", value: String(payload.commitSha).slice(0, 8) });
+  if (payload.url) fields.push({ label: "URL", value: String(payload.url), kind: "url" });
   if (payload.exitCode !== undefined && payload.exitCode !== null) {
-    lines.push(`Exit Code: ${payload.exitCode}`);
+    fields.push({ label: "Exit Code", value: String(payload.exitCode) });
   }
-  if (payload.errorMessage) lines.push(`Error: ${payload.errorMessage}`);
+  if (payload.errorMessage)
+    fields.push({ label: "Error", value: String(payload.errorMessage), kind: "error" });
   if (payload.durationMs !== undefined && payload.durationMs !== null) {
-    lines.push(`Duration: ${Math.round(Number(payload.durationMs) / 1000)}s`);
+    fields.push({ label: "Duration", value: `${Math.round(Number(payload.durationMs) / 1000)}s` });
   }
-
-  const resourceId = payload.resourceId;
-  if (resourceId) {
-    const resourceType = payload.resourceType ?? "resource";
-    lines.push(`Resource: ${resourceType} (${resourceId})`);
+  if (payload.resourceId) {
+    fields.push({
+      label: "Resource",
+      value: `${payload.resourceType ?? "resource"} (${payload.resourceId})`,
+    });
   }
-
-  if (payload.logExcerpt) {
-    lines.push(`Logs:\n${String(payload.logExcerpt).trim()}`);
-  }
+  if (payload.logExcerpt)
+    fields.push({ label: "Logs", value: String(payload.logExcerpt).trim(), kind: "logs" });
 
   return {
-    title,
-    body: lines.join("\n"),
+    title: own?.title ?? cat?.label ?? delivery.category,
+    description: own?.description ?? cat?.description,
+    message: payload.message ? String(payload.message) : undefined,
+    fields,
   };
+}
+
+/** Shared plaintext output for email, chat, webhooks and in-app notifications. */
+export function renderMessage(delivery: NotificationDelivery): RenderedMessage {
+  const { title, description, message, fields } = notificationContent(delivery);
+  return {
+    title,
+    body: [
+      ...[description, message].filter(Boolean),
+      ...fields.map(
+        (field) => `${field.label}:${field.kind === "logs" ? "\n" : " "}${field.value}`,
+      ),
+    ].join("\n"),
+  };
+}
+
+/** Payloads can contain arbitrary text; only HTTP(S) application URLs become links. */
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+/** Build rich HTML for an email notification, separating metadata and raw logs. */
+export function renderEmailHtml(delivery: NotificationDelivery): string {
+  const { title, description, message, fields } = notificationContent(delivery);
+  const metaRows = fields.filter((field) => field.kind !== "error" && field.kind !== "logs");
+  const parts: string[] = [];
+
+  // Header banner / title
+  parts.push(
+    `<div style="margin-bottom:16px;">` +
+      `<h2 style="margin:0 0 8px;font-size:18px;font-weight:600;color:#111;">${escapeHtml(title)}</h2>` +
+      (description
+        ? `<p style="margin:0 0 8px;color:#4b5563;font-size:14px;line-height:1.5;">${escapeHtml(description)}</p>`
+        : "") +
+      (message
+        ? `<p style="margin:0;font-size:15px;font-weight:500;color:#1f2937;line-height:1.5;white-space:pre-wrap;">${escapeHtml(message)}</p>`
+        : "") +
+      `</div>`,
+  );
+
+  // Metadata table
+  if (metaRows.length > 0) {
+    const rowsHtml = metaRows
+      .map((row) => {
+        const val =
+          row.kind === "url" && isHttpUrl(row.value)
+            ? `<a href="${escapeHtml(row.value)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(row.value)}</a>`
+            : escapeHtml(row.value);
+        return `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;font-size:13px;white-space:nowrap;vertical-align:top;">${escapeHtml(row.label)}:</td><td style="padding:4px 0;color:#111827;font-size:13px;word-break:break-all;">${val}</td></tr>`;
+      })
+      .join("");
+    parts.push(
+      `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse;">${rowsHtml}</table>`,
+    );
+  }
+
+  for (const field of fields.filter((field) => field.kind === "error" || field.kind === "logs")) {
+    parts.push(
+      `<div style="margin-top:16px;">` +
+        `<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">${field.kind === "error" ? "Error / Logs" : "Logs"}:</div>` +
+        `<pre style="margin:0;padding:12px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:12px;line-height:1.45;color:#1f2937;overflow-x:auto;white-space:pre-wrap;word-break:break-all;">${escapeHtml(field.value)}</pre>` +
+        `</div>`,
+    );
+  }
+
+  return (
+    `<!DOCTYPE html>` +
+    `<html lang="en">` +
+    `<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /></head>` +
+    `<body style="margin:0;padding:20px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111;">` +
+    `<div style="max-width:600px;margin:0 auto;">` +
+    parts.join("") +
+    `</div>` +
+    `</body>` +
+    `</html>`
+  );
 }
 
 /* ─── Chat-webhook payload builders ───────────────────────────────────────── */
@@ -215,7 +283,7 @@ async function sendEmail(
     to: config.address,
     subject: `[Openship] ${title}`,
     text: body,
-    html: `<pre style="font-family:system-ui,sans-serif;font-size:14px">${escapeHtml(body)}</pre>`,
+    html: renderEmailHtml(delivery),
   });
   // THROW when nothing could carry it. `sendMail` only warns on an empty transport
   // chain, so ignoring its result meant this worker returned normally and the delivery

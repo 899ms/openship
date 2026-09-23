@@ -54,8 +54,7 @@ import { PortForwardingCard } from "./_components/port-forwarding-card";
 import { ServerGitHubConnect } from "@/components/github/ServerGitHubConnect";
 import { MigrationsTab } from "@/components/migration/MigrationsTab";
 import { ServerConnectionCard } from "./_components/connection-card";
-import { ServerDeletionModal } from "./_components/ServerDeletionModal";
-import { serverRemovalSummary, type ServerRemovalResult, type ServerRemovalWorkloadResult } from "@/lib/server-removal";
+import { ServerDeletionModal } from "@/components/servers/ServerDeletionModal";
 import { usePlatform } from "@/context/PlatformContext";
 import { ServerInfrastructure } from "@/components/servers/ServerInfrastructure";
 
@@ -521,71 +520,8 @@ export default function ServerDetailPage({
     })();
   }, [serverId, fetchData, runHealthCheck]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Removal is its own modal, not a one-line confirm: the row being deleted is the
-  // deploy target of every project on the box, so the operator has to see the list and
-  // choose what happens to those workloads. `showModal` can't render either.
   const [removeOpen, setRemoveOpen] = useState(false);
-  const [removeBusy, setRemoveBusy] = useState(false);
-  const [removeFailures, setRemoveFailures] = useState<ServerRemovalWorkloadResult[] | null>(null);
-
-  const handleDelete = useCallback(() => {
-    setRemoveFailures(null);
-    setRemoveOpen(true);
-  }, []);
-
-  const handleRemoveConfirm = useCallback(
-    async (destroyOnSource: boolean, workloadCount: number) => {
-      setRemoveBusy(true);
-      try {
-        const res = await systemApi.deleteServerEntry(serverId, { destroyOnSource, workloadCount });
-        // Every message below is derived from the RESPONSE. Reporting the flag we sent
-        // is how a delete once claimed a cascade the server never performed.
-        const summary = serverRemovalSummary(res);
-        if (summary.kind === "partial") {
-          setRemoveFailures(summary.failed);
-          showToast(
-            res.error ?? t.servers.detail.toastFailedRemoveServer,
-            "error",
-            t.servers.toastTitles.server,
-          );
-          return;
-        }
-        setRemoveOpen(false);
-        showToast(
-          summary.count === 0
-            ? t.servers.detail.toastServerRemoved
-            : interpolate(
-                summary.destroyed
-                  ? summary.count === 1
-                    ? t.servers.detail.removal.toastRemovedDestroyedOne
-                    : t.servers.detail.removal.toastRemovedDestroyedOther
-                  : summary.count === 1
-                    ? t.servers.detail.removal.toastRemovedKeptOne
-                    : t.servers.detail.removal.toastRemovedKeptOther,
-                { count: String(summary.count) },
-              ),
-          "success",
-          t.servers.toastTitles.server,
-        );
-        router.push("/servers");
-      } catch (err) {
-        // A 409 carries the per-workload reasons; render them in the modal so the
-        // retry is aimed rather than blind.
-        const body = err instanceof ApiError ? (err.body as ServerRemovalResult | undefined) : undefined;
-        if (body?.workloads?.length) {
-          setRemoveFailures(body.workloads.filter((w) => !w.ok || (w.orphaned ?? 0) > 0));
-        }
-        showToast(
-          getApiErrorMessage(err, t.servers.detail.toastFailedRemoveServer),
-          "error",
-          t.servers.toastTitles.server,
-        );
-      } finally {
-        setRemoveBusy(false);
-      }
-    },
-    [serverId, router, showToast, t],
-  );
+  const handleDelete = useCallback(() => setRemoveOpen(true), []);
 
   if (loading) {
     return (
@@ -637,7 +573,7 @@ export default function ServerDetailPage({
               >
                 {t.servers.detail.editServer}
               </h1>
-              <p className="text-sm text-muted-foreground/70 mt-0.5">
+              <p className="text-sm text-muted-foreground mt-0.5">
                 {interpolate(t.servers.detail.editSubtitle, { name: server.name || server.sshHost })}
               </p>
             </div>
@@ -699,7 +635,7 @@ export default function ServerDetailPage({
                 The country flag lives on the connection card's Host row — beside
                 the value it describes — and the SSH port lives there too. */}
             <div className="mt-1 flex items-center gap-2">
-              <p className="text-sm text-muted-foreground/70 font-mono">
+              <p className="text-sm text-muted-foreground font-mono">
                 {server.sshUser ?? "root"}@<BlurIp>{server.sshHost}</BlurIp>
               </p>
               {allHealthy ? (
@@ -884,16 +820,13 @@ export default function ServerDetailPage({
           )}
         </div>
 
-        {/* Removal confirm. The only removal entry point in the app — the fleet list
-            has no delete action. */}
         <ServerDeletionModal
           isOpen={removeOpen}
           onClose={() => setRemoveOpen(false)}
-          onConfirm={handleRemoveConfirm}
+          onRemoved={() => router.push("/servers")}
+          key={serverId}
           serverId={serverId}
           serverName={server?.name ?? ""}
-          failures={removeFailures}
-          busy={removeBusy}
         />
     </PageContainer>
   );

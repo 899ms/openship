@@ -157,7 +157,8 @@ function MailServerCard({
         </Link>
       </div>
 
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      {/* Give the hostname and webmail action separate rows on phones. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground mb-1.5">
             {t.emailsAdmin.overview.hostname}
@@ -171,7 +172,7 @@ function MailServerCard({
               {mailHost || "-"}
             </span>
             {mailHost && (
-              <span className="text-muted-foreground/70 group-hover:text-foreground transition-colors shrink-0">
+              <span className="text-muted-foreground group-hover:text-foreground transition-colors shrink-0">
                 {copied ? (
                   <Check className="size-3.5 text-success" />
                 ) : (
@@ -456,7 +457,7 @@ function StatRow({
           {stringValue}
         </p>
         {sub && (
-          <p className="text-[10.5px] text-muted-foreground/70 mt-0.5 leading-none">
+          <p className="text-[10.5px] text-muted-foreground mt-0.5 leading-none">
             {sub}
           </p>
         )}

@@ -12,7 +12,13 @@
  * while the supervisor handles process lifecycle portably.
  */
 
-import type { CommandExecutor, LogEntry, LogCallback, ResourceUsage } from "../../types";
+import type {
+  CommandExecutor,
+  LogEntry,
+  LogCallback,
+  ResourceUsage,
+  RuntimeLogStreamOptions,
+} from "../../types";
 
 // ─── Deploy options ──────────────────────────────────────────────────────────
 
@@ -77,7 +83,7 @@ export interface ProcessSupervisor {
   streamLogs(
     deploymentId: string,
     onLog: LogCallback,
-    opts?: { tail?: number },
+    opts?: RuntimeLogStreamOptions,
   ): Promise<() => void>;
 }
 

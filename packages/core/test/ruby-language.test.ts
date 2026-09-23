@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { rubyLanguageDetector } from "../src/languages/ruby";
+import { parseRubyVersion, rubyLanguageDetector } from "../src/languages/ruby";
 
 /** A stock Rails 8 lockfile, trimmed to the sections that matter here. */
 const LOCKFILE = `GEM
@@ -30,6 +30,11 @@ describe("rubyLanguageDetector", () => {
   it("claims both Gemfile and Gemfile.lock", () => {
     expect(rubyLanguageDetector.manifestFiles).toContain("gemfile");
     expect(rubyLanguageDetector.manifestFiles).toContain("gemfile.lock");
+  });
+
+  it("claims .ruby-version so callers fetch it, but reads no deps from it", () => {
+    expect(rubyLanguageDetector.manifestFiles).toContain(".ruby-version");
+    expect(rubyLanguageDetector.parseManifest(".ruby-version", "3.4.1")).toEqual({});
   });
 
   it("reads gems from the lockfile that the Gemfile never names", () => {
@@ -86,5 +91,37 @@ PLATFORMS
 
   it("returns {} for a filename it does not handle", () => {
     expect(rubyLanguageDetector.parseManifest("Rakefile", "task :default")).toEqual({});
+  });
+});
+
+
+describe("parseRubyVersion", () => {
+  it.each([
+    [".ruby-version", "3.4.1\n", "3.4.1"],
+    [".ruby-version", "ruby-3.2.2\r\n", "3.2.2"],
+    ["Gemfile.lock", "RUBY VERSION\n   ruby 3.3.6p108\n", "3.3.6"],
+    ["Gemfile.lock", "RUBY VERSION\r\n   ruby 3.4.1p0\r\n", "3.4.1"],
+    ["Gemfile", `ruby "3.3.0" # production\ngem "rails"`, "3.3.0"],
+    ["Gemfile", `ruby '3.4'`, "3.4"],
+    ["Gemfile", `ruby("3.4.1")`, "3.4.1"],
+    ["Gemfile", `ruby ( "3.4.1" ) # production`, "3.4.1"],
+  ])("reads an exact pin from %s: %s", (filename, content, expected) => {
+    expect(parseRubyVersion(filename, content)).toBe(expected);
+  });
+
+  it.each([
+    [".ruby-version", "3.4.1-preview1"], [".ruby-version", "3.4.1.5"],
+    [".ruby-version", "3.4.1 && echo wrong"], [".ruby-version", "jruby-9.4.1"],
+    [".ruby-version", "3.4.1\n3.3.0"], [".ruby-version", ""],
+    ["Gemfile.lock", "RUBY VERSION\n   ruby 3.4.1-preview1\n"],
+    ["Gemfile.lock", "RUBY VERSION\n   ruby 3.4.1.5\n"],
+    ["Gemfile", `ruby "3.4.1-preview1"`], ["Gemfile", `ruby "3.4.1.5"`],
+    ["Gemfile", `ruby "3.4.1#{patch}"`], ["Gemfile", `ruby "3.4.1`],
+    ["Gemfile", `ruby "3.4.1'`], ["Gemfile", `ruby "~> 3.4"`],
+    ["Gemfile", `ruby ">= 3.4"`], ["Gemfile", `ruby file: ".ruby-version"`],
+    ["Gemfile", `# ruby "3.4.1"`],
+    ["Gemfile", `ruby "3.1.0", engine: "jruby", engine_version: "9.4.1.0"`],
+  ])("does not invent a stable pin from %s: %s", (filename, content) => {
+    expect(parseRubyVersion(filename, content)).toBeNull();
   });
 });
