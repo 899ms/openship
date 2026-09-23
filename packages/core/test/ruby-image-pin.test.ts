@@ -1,61 +1,32 @@
 import { describe, expect, it } from "vitest";
-
-import { getBuildImage, getRuntimeImage, runtimeVersionFromImage } from "../src/stacks";
+import { getBuildImage, getRuntimeImage } from "../src/stacks";
 
 describe("Ruby image pinning", () => {
-  it("uses the language default when the project pins nothing", () => {
-    expect(getBuildImage("rails")).toBe("ruby:3.3-slim");
-    expect(getRuntimeImage("rails")).toBe("ruby:3.3-slim");
+  it.each(["rails", "sinatra"] as const)("keeps %s build and runtime on the declared Ruby", (stack) => {
+    const image = getBuildImage(stack, "bundler", "3.4.1");
+    expect(image).toBe("ruby:3.4.1-slim");
+    expect(getRuntimeImage(stack, "bundler", image)).toBe(image);
   });
-
-  it("pins the project's Ruby when one was detected", () => {
-    expect(getBuildImage("rails", undefined, "3.4.1")).toBe("ruby:3.4.1-slim");
-    expect(getRuntimeImage("rails", undefined, "3.4.1")).toBe("ruby:3.4.1-slim");
+  it.each([
+    "ruby:3.4.1-slim", "ruby:3.3", "ruby:3.2.2-alpine3.20", "ruby:3.4-bookworm",
+    "docker.io/library/ruby:3.4.1-alpine", "public.ecr.aws/docker/library/ruby:3.4.1",
+    `ruby:3.4.1-slim@sha256:${"a".repeat(64)}`,
+  ])("retains the full builder reference at runtime: %s", (image) => {
+    expect(getRuntimeImage("rails", "bundler", image)).toBe(image);
   });
-
-  it("keeps build and runtime on the SAME tag", () => {
-    // Bundler installs into a version-scoped path under BUNDLE_PATH, so a
-    // runtime on a different Ruby finds no gems at all.
-    expect(getBuildImage("rails", undefined, "3.2.2")).toBe(
-      getRuntimeImage("rails", undefined, "3.2.2"),
-    );
-  });
-
-  it("applies to sinatra too — it is the language, not the stack", () => {
-    expect(getBuildImage("sinatra", undefined, "3.4.1")).toBe("ruby:3.4.1-slim");
-  });
-
-  it("ignores a version override for a non-Ruby stack", () => {
+  it.each([undefined, null, "", "node:22", "acme/ruby:3.4.1", "ruby:3.4.1 && echo wrong", "ruby:3.4.1@oops"])(
+    "keeps the default for absent or unrelated/invalid builder references: %s", (image) => {
+      expect(getRuntimeImage("rails", "bundler", image)).toBe("ruby:3.3-slim");
+    },
+  );
+  it("does not apply a Ruby pin to other languages", () => {
     expect(getBuildImage("nextjs", undefined, "3.4.1")).toBe("node:22");
     expect(getBuildImage("django", undefined, "3.4.1")).toBe("python:3.12-slim");
+    expect(getRuntimeImage("nextjs", "bun", "ruby:3.4.1")).toBe("oven/bun:latest");
   });
-
-  it("rejects anything that is not a plain X.Y[.Z]", () => {
-    // The value comes from a file in the repo being deployed, so it is
-    // attacker-controlled input to an image reference.
-    for (const bad of ["3.3-slim && rm -rf /", "latest", "", "../../evil", "3"]) {
-      expect(getBuildImage("rails", undefined, bad)).toBe("ruby:3.3-slim");
-    }
-  });
-});
-
-describe("runtimeVersionFromImage", () => {
-  it("reads the version back out of a pinned Ruby image", () => {
-    expect(runtimeVersionFromImage("ruby:3.4.1-slim")).toBe("3.4.1");
-    expect(runtimeVersionFromImage("ruby:3.3-slim")).toBe("3.3");
-  });
-
-  it("returns undefined for a non-Ruby image or no image", () => {
-    expect(runtimeVersionFromImage("node:22")).toBeUndefined();
-    expect(runtimeVersionFromImage(undefined)).toBeUndefined();
-    expect(runtimeVersionFromImage(null)).toBeUndefined();
-    expect(runtimeVersionFromImage("")).toBeUndefined();
-  });
-
-  it("round-trips, so a stored buildImage can pin the runtime to match", () => {
-    // This is how the deploy path keeps the two in lockstep: buildImage is
-    // persisted on the project, runtimeImage is recomputed from it.
-    const built = getBuildImage("rails", undefined, "3.4.1");
-    expect(getRuntimeImage("rails", undefined, runtimeVersionFromImage(built))).toBe(built);
-  });
+  it.each(["3.3-slim && echo wrong", "latest", "", "../../evil", "3", "3.4.1.5", "3.4.1-preview1"])(
+    "rejects a nonnumeric detected pin: %s", (version) => {
+      expect(getBuildImage("rails", undefined, version)).toBe("ruby:3.3-slim");
+    },
+  );
 });

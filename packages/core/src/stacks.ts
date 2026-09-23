@@ -17,6 +17,8 @@
  */
 
 import { shellQuote } from "./shell-split";
+import { normalizeImageRef } from "./backup-image-detect";
+import { validateImageReference } from "./project-source";
 
 // ─── Language definitions ────────────────────────────────────────────────────
 
@@ -1079,14 +1081,6 @@ function applyRuntimeVersion(image: string, language: Language, version?: string
   return image.replace(/^ruby:[^-]+(-.*)?$/, (_full, suffix) => `ruby:${version}${suffix ?? ""}`);
 }
 
-/** The version back out of a pinned Ruby image. Lets the deploy path recompute a
- *  runtime image that matches the project's stored buildImage — bundler installs
- *  into a version-scoped path, so a mismatch leaves the runtime with no gems. */
-export function runtimeVersionFromImage(image?: string | null): string | undefined {
-  const m = image?.match(/^ruby:(\d+\.\d+(?:\.\d+)?)/);
-  return m ? m[1] : undefined;
-}
-
 /** Get the resolved Docker build image for a stack */
 export function getBuildImage(
   stackId: StackId,
@@ -1169,18 +1163,22 @@ export function nodeBinPathExport(packageManager: string | undefined, roots: str
   return `export PATH=${dirs.map(shellQuote).join(":")}:"$PATH"`;
 }
 
-/** Get the resolved Docker runtime image for a stack */
+/** Resolve the runtime image. Ruby copies compiled gems from the builder, so
+ *  retain its full image reference, including the OS variant and digest. */
 export function getRuntimeImage(
   stackId: StackId,
   packageManager?: string,
-  runtimeVersion?: string,
+  buildImage?: string | null,
 ): string {
   const stack = STACKS[stackId] as StackDefinition;
   if (packageManager === "bun" && BUN_ELIGIBLE_LANGUAGES.has(stack.language)) {
     return "oven/bun:latest";
   }
-  const image = stack.runtimeImage ?? LANGUAGES[stack.language].runtimeImage;
-  return applyRuntimeVersion(image, stack.language, runtimeVersion);
+  if (stack.language === "ruby" && buildImage &&
+      !validateImageReference(buildImage) && /^ruby(?::|$)/.test(normalizeImageRef(buildImage))) {
+    return buildImage;
+  }
+  return stack.runtimeImage ?? LANGUAGES[stack.language].runtimeImage;
 }
 
 

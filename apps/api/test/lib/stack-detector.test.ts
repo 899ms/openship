@@ -1446,3 +1446,31 @@ describe("detectStack - recovers scripts when only the manifest text survives (#
     expect(result.port).toBe(4321);
   });
 });
+
+
+describe("Ruby runtime version detection", () => {
+  const railsFiles = files("Gemfile", ".ruby-version", "Gemfile.lock", "bin/rails");
+  it.each([
+    [{ ".ruby-version": "3.4.1", "Gemfile.lock": "RUBY VERSION\n   ruby 3.3.6p108\n", Gemfile: 'ruby "3.2.2"' }, "3.4.1"],
+    [{ "Gemfile.lock": "RUBY VERSION\n   ruby 3.3.6p108\n", Gemfile: 'ruby ">= 3.2"' }, "3.3.6"],
+    [{ Gemfile: 'ruby "3.2.2"' }, "3.2.2"],
+  ])("uses the project version before the language default", (content, version) => {
+    expect(detectStack(railsFiles, undefined, content).buildImage).toBe(`ruby:${version}-slim`);
+  });
+  it("keeps the pin when metadata changes the detected framework", () => {
+    expect(detectStack(railsFiles, undefined, {
+      Gemfile: 'gem "rails"', ".ruby-version": "3.4.1",
+      "openship.json": JSON.stringify({ framework: "sinatra" }),
+    })).toMatchObject({ stack: "sinatra", buildImage: "ruby:3.4.1-slim" });
+  });
+  it("applies the pin when metadata first identifies the Ruby framework", () => {
+    expect(detectStack(files("openship.json", ".ruby-version"), undefined, {
+      ".ruby-version": "3.4.1", "openship.json": JSON.stringify({ framework: "rails" }),
+    })).toMatchObject({ stack: "rails", buildImage: "ruby:3.4.1-slim" });
+  });
+  it("does not pin a Dockerfile-owned image", () => {
+    expect(detectStack(files("Dockerfile", ".ruby-version"), undefined, {
+      ".ruby-version": "3.4.1",
+    })).toMatchObject({ stack: "docker", buildImage: "ubuntu:22.04" });
+  });
+});

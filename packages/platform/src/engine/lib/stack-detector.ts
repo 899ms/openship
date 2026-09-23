@@ -202,7 +202,7 @@ function hasBackendMarker(fileSet: Set<string>): boolean {
   );
 }
 
-/** The Ruby this project pins, in the order bundler trusts: `.ruby-version`,
+/** Prefer the project's explicit `.ruby-version`,
  *  then the lockfile stanza, then the Gemfile directive. First hit wins;
  *  undefined leaves the language default in place. */
 function detectRubyVersion(fileContents: Record<string, string>): string | undefined {
@@ -559,7 +559,7 @@ export function detectStack(
     installCommand: projectType === "docker" ? "" : getInstallCommand(pm),
     buildCommand: getBuildCommand(pm, matched, packageJson, files),
     startCommand,
-    buildImage: getBuildImage(matched, pm, detectRubyVersion(fc)),
+    buildImage: getBuildImage(matched, pm),
     outputDirectory: OUTPUT_DIRECTORIES[matched] ?? "dist",
     productionPaths,
     port: detectPortFromLanguages({ packageJson, fileContents: fc }) ?? stackDef.defaultPort,
@@ -567,7 +567,13 @@ export function detectStack(
 
   // Fold metadata (vercel.json / render.yaml / …) over heuristic detection so a
   // repo that already tells a PaaS how to build/run it deploys the same way here.
-  return applyMetadataOverrides(result, parseDeploymentMetadata(fc));
+  const resolved = applyMetadataOverrides(result, parseDeploymentMetadata(fc));
+  // Metadata can reclassify the framework. Resolve the pin after the final
+  // classification so it cannot be discarded by a framework override.
+  return {
+    ...resolved,
+    buildImage: getBuildImage(resolved.stack, resolved.packageManager, detectRubyVersion(fc)),
+  };
 }
 
 // ─── Metadata overrides (vercel.json / render.yaml / …) ──────────────────────

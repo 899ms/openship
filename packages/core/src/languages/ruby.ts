@@ -51,6 +51,45 @@ function parseGemfileLock(content: string): Record<string, string> {
   return deps;
 }
 
+/**
+ * The Ruby version pinned in `.ruby-version`, a lockfile, or a Gemfile. Returns
+ * a bare `X.Y[.Z]` or null. Precedence between the three is the caller's call.
+ *
+ * A range is not a pin: `ruby "~> 3.3"` returns null rather than guessing.
+ */
+export function parseRubyVersion(filename: string, content: string): string | null {
+  const version = String.raw`(\d+\.\d+(?:\.\d+)?)`;
+
+  switch (filename.toLowerCase()) {
+    case ".ruby-version": {
+      // `3.3.6`, or `ruby-3.3.6` from the managers that prefix it.
+      const m = content.trim().match(new RegExp(`^(?:ruby-)?${version}$`));
+      return m ? m[1] : null;
+    }
+    case "gemfile.lock": {
+      // "RUBY VERSION\n   ruby 3.3.6p108"
+      const m = content.match(new RegExp(String.raw`^RUBY VERSION[\t ]*\r?\n[\t ]+ruby[\t ]+${version}(?:p\d+)?[\t ]*\r?$`, "m"));
+      return m ? m[1] : null;
+    }
+    case "gemfile": {
+      // Only a complete literal directive is a pin. Do not truncate a range,
+      // prerelease, Ruby expression or a directive for another runtime engine.
+      const line = content.match(/^[\t ]*ruby(?=[\t (])([^\r\n]+)\r?$/m);
+      if (!line) return null;
+      let argument = line[1].trim();
+      if (argument.startsWith("(")) {
+        const call = argument.match(/^\((.*)\)[\t ]*(?:#.*)?$/);
+        if (!call) return null;
+        argument = call[1];
+      }
+      const m = argument.match(new RegExp(String.raw`^[\t ]*(['"])${version}\1[\t ]*(?:#.*)?$`));
+      return m ? m[2] : null;
+    }
+    default:
+      return null;
+  }
+}
+
 export const rubyLanguageDetector: LanguageDetector = {
   id: "ruby",
   label: "Ruby",

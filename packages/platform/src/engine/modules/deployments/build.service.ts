@@ -31,7 +31,6 @@ import {
   safeErrorMessage,
   compareCommitSha,
   getRuntimeImage,
-  runtimeVersionFromImage,
   isFullCommitSha,
   isReleaseProvider,
   releaseArtifactKind,
@@ -1086,7 +1085,7 @@ function resolveRuntimeImage(project: Project): string {
   return getRuntimeImage(
     stackId,
     project.packageManager ?? undefined,
-    runtimeVersionFromImage(project.buildImage),
+    project.buildImage,
   );
 }
 
