@@ -208,4 +208,12 @@ describe("remote service facade", () => {
       [Symbol.asyncIterator]();
     await expect(iterator.next()).rejects.toMatchObject({ name: "AbortError" });
   });
+  it("passes the viewed deployment identity to the runtime stream", async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request) => new Response('event: end\ndata: {}\n\n', { headers: { "content-type": "text/event-stream" } }));
+    const client = new OpenshipClient({ baseUrl: "https://ship.test", fetch: fetcher });
+    for await (const _event of client.services.streamLogs("project", "service", { tail: 100, deploymentId: "dep/viewed" })) { /* drain */ }
+    const url = new URL(String(fetcher.mock.calls[0]![0]));
+    expect(url.searchParams.get("deploymentId")).toBe("dep/viewed");
+    expect(url.searchParams.get("tail")).toBe("100");
+  });
 });

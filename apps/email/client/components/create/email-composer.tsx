@@ -22,6 +22,7 @@ import { ScheduleSendPicker } from './schedule-send-picker';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmailAliases } from '@/hooks/use-email-aliases';
 import useComposeEditor from '@/hooks/use-compose-editor';
+import { useComposerHeaders } from '@/hooks/use-composer-headers';
 import { CurvedArrow, Sparkles, X } from '../icons/icons';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { AnimatePresence, motion } from 'motion/react';
@@ -137,7 +138,6 @@ export function EmailComposer({
   const [imageQuality, setImageQuality] = useState<ImageQuality>(
     (settings?.settings?.imageCompression as unknown as ImageQuality) || 'medium',
   );
-  const [activeReplyId] = useQueryState('activeReplyId');
   const [toggleToolbar, setToggleToolbar] = useState(false);
   const processAndSetAttachments = async (
     filesToProcess: File[],
@@ -240,6 +240,12 @@ export function EmailComposer({
   });
 
   const { watch, setValue, getValues } = form;
+  useComposerHeaders(
+    { to: initialTo, cc: initialCc, bcc: initialBcc, subject: initialSubject },
+    getValues,
+    setValue,
+    (field) => field === 'cc' ? setShowCc(true) : setShowBcc(true),
+  );
   const toEmails = watch('to');
   const ccEmails = watch('cc');
   const bccEmails = watch('bcc');
@@ -689,36 +695,34 @@ export function EmailComposer({
         </div>
 
         {/* Subject */}
-        {!activeReplyId ? (
-          <div className="flex items-center gap-2 border-b p-3">
-            <p className="text-sm font-medium text-[#8C8C8C]">Subject:</p>
-            <input
-              className="h-4 w-full bg-transparent text-sm font-normal leading-normal text-black placeholder:text-[#797979] focus:outline-none dark:text-white/90"
-              placeholder="Re: Design review feedback"
-              value={subjectInput}
-              onChange={(e) => {
-                const value = replaceEmojiShortcodes(e.target.value);
-                setValue('subject', value);
-                setHasUnsavedChanges(true);
-              }}
-            />
-            <button
-              onClick={handleGenerateSubject}
-              disabled={isLoading || isGeneratingSubject || messageLength < 1}
-              className="hover:bg-gray-50 dark:hover:bg-[#404040] transition-colors cursor-pointer rounded p-1"
-            >
-              <div className="flex items-center justify-center gap-2.5 pl-0.5">
-                <div className="flex h-5 items-center justify-center gap-1 rounded-sm">
-                  {isGeneratingSubject ? (
-                    <Loader className="h-3.5 w-3.5 animate-spin fill-black dark:fill-white" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5 fill-black dark:fill-white" />
-                  )}
-                </div>
+        <div className="flex items-center gap-2 border-b p-3">
+          <p className="text-sm font-medium text-[#8C8C8C]">Subject:</p>
+          <input
+            className="h-4 w-full bg-transparent text-sm font-normal leading-normal text-black placeholder:text-[#797979] focus:outline-none dark:text-white/90"
+            placeholder="Re: Design review feedback"
+            value={subjectInput}
+            onChange={(e) => {
+              const value = replaceEmojiShortcodes(e.target.value);
+              setValue('subject', value);
+              setHasUnsavedChanges(true);
+            }}
+          />
+          <button
+            onClick={handleGenerateSubject}
+            disabled={isLoading || isGeneratingSubject || messageLength < 1}
+            className="hover:bg-gray-50 dark:hover:bg-[#404040] transition-colors cursor-pointer rounded p-1"
+          >
+            <div className="flex items-center justify-center gap-2.5 pl-0.5">
+              <div className="flex h-5 items-center justify-center gap-1 rounded-sm">
+                {isGeneratingSubject ? (
+                  <Loader className="h-3.5 w-3.5 animate-spin fill-black dark:fill-white" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5 fill-black dark:fill-white" />
+                )}
               </div>
-            </button>
-          </div>
-        ) : null}
+            </div>
+          </button>
+        </div>
 
         {/* From */}
         {aliases && aliases.length > 1 ? (

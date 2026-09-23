@@ -67,7 +67,7 @@ export function RateLimitSettings({ serverId }: { serverId: string }) {
       syncDraftFromConfig(res.config);
       setIsEditing(res.config.rps === 0);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : t.servers.security.failedReadConfig);
+      setLoadError(getApiErrorMessage(err, t.servers.security.failedReadConfig));
     } finally {
       setLoading(false);
     }
@@ -144,22 +144,18 @@ export function RateLimitSettings({ serverId }: { serverId: string }) {
         whitelist: nextDraft.whitelist,
       });
 
-      if (res.success) {
-        setCurrentConfig(res.config);
-        syncDraftFromConfig(res.config);
-        setIsEditing(res.config.rps === 0);
-        setNewIp("");
-        showToast(
-          interpolate(t.servers.security.toastRateLimitUpdated, {
-            from: previousSummary,
-            to: formatPolicySummary(res.config),
-          }),
-          "success",
-          t.servers.toastTitles.security,
-        );
-      } else {
-        showToast(res.error || t.servers.security.toastFailedApply, "error", t.servers.toastTitles.security);
-      }
+      setCurrentConfig(res.config);
+      syncDraftFromConfig(res.config);
+      setIsEditing(res.config.rps === 0);
+      setNewIp("");
+      showToast(
+        interpolate(t.servers.security.toastRateLimitUpdated, {
+          from: previousSummary,
+          to: formatPolicySummary(res.config),
+        }),
+        "success",
+        t.servers.toastTitles.security,
+      );
     } catch (err) {
       showToast(getApiErrorMessage(err, t.servers.security.toastFailedSave), "error", t.servers.toastTitles.security);
     } finally {
@@ -180,15 +176,11 @@ export function RateLimitSettings({ serverId }: { serverId: string }) {
         whitelist: [],
       });
 
-      if (res.success) {
-        setCurrentConfig(res.config);
-        syncDraftFromConfig(res.config);
-        setIsEditing(true);
-        setNewIp("");
-        showToast(t.servers.security.toastRemoved, "success", t.servers.toastTitles.security);
-      } else {
-        showToast(res.error || t.servers.security.toastFailedRemove, "error", t.servers.toastTitles.security);
-      }
+      setCurrentConfig(res.config);
+      syncDraftFromConfig(res.config);
+      setIsEditing(true);
+      setNewIp("");
+      showToast(t.servers.security.toastRemoved, "success", t.servers.toastTitles.security);
     } catch (err) {
       showToast(getApiErrorMessage(err, t.servers.security.toastFailedRemove), "error", t.servers.toastTitles.security);
     } finally {

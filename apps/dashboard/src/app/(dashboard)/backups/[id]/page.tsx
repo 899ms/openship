@@ -34,7 +34,7 @@ import {
   describeDestination,
   describeCredentials,
 } from "@/components/backup/destinationDisplay";
-import { CreateDestinationModal } from "../_components/CreateDestinationModal";
+import { CreateDestinationModal } from "@/components/backup/CreateDestinationModal";
 
 export default function BackupDestinationDetailPage() {
   const params = useParams<{ id: string }>();

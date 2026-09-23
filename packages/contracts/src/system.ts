@@ -5,11 +5,17 @@ const nullableString = Type.Union([Type.String(), Type.Null()]);
 const nullableNumber = Type.Union([Type.Number(), Type.Null()]);
 const nullableBoolean = Type.Union([Type.Boolean(), Type.Null()]);
 const ok = Type.Object({ ok: Type.Literal(true) });
+/** Public login capabilities, without credential values. Unknown kinds are ignored by older clients. */
+export const AdvertisedAuthProviderSchema = Type.Object({
+  id: Type.String(), kind: Type.String(),
+}, { additionalProperties: false });
+export type AdvertisedAuthProvider = Static<typeof AdvertisedAuthProviderSchema>;
 export const SystemInfoSchema = Type.Object({
   selfHosted: Type.Boolean(), deployMode: Type.String(), isServerHost: Type.Boolean(), hostControlEnabled: Type.Boolean(),
   version: Type.String(), authMode: Type.String(), productMode: Type.String(), teamMode: Type.String(),
   migrationTargetUrl: nullableString, migrationInProgress: Type.Boolean(), cloudAuthUrl: Type.String(), cloudApiUrl: Type.String(),
   machineName: Type.Optional(Type.String()), hostDomain: Type.Optional(Type.String()),
+  authProviders: Type.Optional(Type.Array(AdvertisedAuthProviderSchema)),
 });
 export type SystemInfo = Static<typeof SystemInfoSchema>;
 export const SystemHealthSchema = Type.Object({

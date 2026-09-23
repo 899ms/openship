@@ -55,6 +55,14 @@ export default {
 }
 
 describe("native CLI through a real Node worker and PGlite", { timeout: 120_000 }, () => {
+  it("lists jobs through the native SDK without HTTP", async () => {
+    const f = await fixture();
+    const config = await f.config();
+    const result = await f.run(["--native-config", config, "--json", "jobs", "list"]);
+    expect(result.code, result.stderr).toBe(0);
+    expect(Array.isArray(JSON.parse(result.stdout))).toBe(true);
+  });
+
   it("creates and reopens projects with clean JSON and no HTTP connection", async () => {
     const f = await fixture();
     const config = await f.config();

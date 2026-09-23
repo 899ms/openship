@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Cloud,
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/button";
-import { ServerSelector } from "@/components/shared";
+import ServerSelector from "@/components/shared/ServerSelector";
 import {
   backupDestinationsApi,
   type BackupDestinationSummary,
@@ -192,7 +192,7 @@ function kindMeta(kind: Kind, m: Record<string, string>): { description: string;
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (destination: BackupDestinationSummary) => void | Promise<void>;
   /** When set, the modal edits this destination instead of creating one:
    *  the kind picker is skipped, fields are pre-filled, and secrets are left
    *  blank (blank = keep the stored value). */
@@ -207,6 +207,7 @@ export function CreateDestinationModal({ isOpen, onClose, onSaved, destination }
   const editing = !!destination;
   const [step, setStep] = useState<Step>("pick");
   const [selectedKind, setSelectedKind] = useState<Kind | null>(null);
+  const [busy, setBusy] = useState(false);
 
   // Reset state every time the modal opens. In edit mode jump straight to the
   // configure step with the destination's (fixed) kind.
@@ -231,6 +232,8 @@ export function CreateDestinationModal({ isOpen, onClose, onSaved, destination }
     <Modal
       isOpen={isOpen}
       onClose={onClose}
+      closable={!busy}
+      showCloseButton={!busy}
       maxWidth={step === "pick" ? "900px" : "760px"}
       width="100%"
       maxHeight="92vh"
@@ -242,8 +245,9 @@ export function CreateDestinationModal({ isOpen, onClose, onSaved, destination }
             {step === "configure" && !editing && (
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => setStep("pick")}
-                className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label={m.backToPicker}
               >
                 <ArrowLeft className="size-4 rtl:rotate-180" />
@@ -286,6 +290,8 @@ export function CreateDestinationModal({ isOpen, onClose, onSaved, destination }
               destination={destination ?? null}
               onCancel={onClose}
               onSaved={onSaved}
+              busy={busy}
+              onBusyChange={setBusy}
             />
           ) : null}
         </div>
@@ -356,11 +362,15 @@ function ConfigureForm({
   destination,
   onCancel,
   onSaved,
+  busy,
+  onBusyChange,
 }: {
   kind: Kind;
   destination: BackupDestinationSummary | null;
   onCancel: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: Props["onSaved"];
+  busy: boolean;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const { t } = useI18n();
   const m = t.misc.backups;
@@ -391,7 +401,7 @@ function ConfigureForm({
   const [sftpPassword, setSftpPassword] = useState("");
   const [sftpPrivateKey, setSftpPrivateKey] = useState("");
   const [serverId, setServerId] = useState(destination?.serverId ?? "");
-  const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<{ status: "idle" | "testing" | "ok" | "fail"; reason?: string }>({
     status: "idle",
@@ -458,24 +468,28 @@ function ConfigureForm({
   };
 
   const submit = async () => {
+    if (submitting.current) return;
+    submitting.current = true;
     setError(null);
     const input = buildInput();
-    setBusy(true);
+    onBusyChange(true);
     try {
+      let saved;
       if (editing && destination) {
         // Kind is immutable — never send it on update.
         const { kind: _kind, ...patch } = input;
-        await backupDestinationsApi.update(destination.id, patch);
+        saved = await backupDestinationsApi.update(destination.id, patch);
       } else {
-        await backupDestinationsApi.create(input);
+        saved = await backupDestinationsApi.create(input);
       }
-      await onSaved();
+      await onSaved(saved.data);
     } catch (err) {
       setError(
         getApiErrorMessage(err, editing ? m.updateFailed : m.createFailed),
       );
     } finally {
-      setBusy(false);
+      submitting.current = false;
+      onBusyChange(false);
     }
   };
 
