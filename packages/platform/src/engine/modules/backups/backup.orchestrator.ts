@@ -428,6 +428,7 @@ export class BackupOrchestrator {
         );
         serviceHandle = built.handle;
         executor = built.executor;
+        sourceRuntime = built.runtime;
         ctx = built.ctx;
       } else {
         // The concrete service lives on the RUN row (set at spawn for both
@@ -1097,7 +1098,7 @@ export class BackupOrchestrator {
   private async buildMailSource(
     mailServerId: string,
     destinationOrgId: string,
-  ): Promise<{ handle: ServiceHandle; executor: BackupExecutor; ctx: RunContext }> {
+  ): Promise<{ handle: ServiceHandle; executor: BackupExecutor; runtime: RuntimeAdapter; ctx: RunContext }> {
     const mailRow = await repos.mailServer.get(mailServerId);
     if (!mailRow) throw new Error(`Mail server ${mailServerId} not found`);
     const domain = mailRow.domain ?? "mail";
@@ -1126,6 +1127,7 @@ export class BackupOrchestrator {
     return {
       handle,
       executor,
+      runtime: targetPlatform.runtime,
       ctx: {
         projectSlug: slug,
         projectName: domain,
