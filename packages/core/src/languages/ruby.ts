@@ -54,7 +54,8 @@ function parseGemfileLock(content: string): Record<string, string> {
 export const rubyLanguageDetector: LanguageDetector = {
   id: "ruby",
   label: "Ruby",
-  manifestFiles: ["gemfile", "gemfile.lock"],
+  // `.ruby-version` carries no deps; it is listed so callers fetch it.
+  manifestFiles: ["gemfile", "gemfile.lock", ".ruby-version"],
   parseManifest(filename, content) {
     switch (filename.toLowerCase()) {
       case "gemfile":

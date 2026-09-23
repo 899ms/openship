@@ -31,6 +31,7 @@ import {
   safeErrorMessage,
   compareCommitSha,
   getRuntimeImage,
+  runtimeVersionFromImage,
   isFullCommitSha,
   isReleaseProvider,
   releaseArtifactKind,
@@ -1079,7 +1080,14 @@ function resolveRuntimeImage(project: Project): string {
     return getRuntimeImage("static", project.packageManager ?? undefined);
   }
 
-  return getRuntimeImage(stackId, project.packageManager ?? undefined);
+  // Follows the buildImage detection stored on the project, so a pinned Ruby
+  // cannot end up with a runtime on a different one (bundler installs into a
+  // version-scoped path, so a mismatch leaves the runtime with no gems).
+  return getRuntimeImage(
+    stackId,
+    project.packageManager ?? undefined,
+    runtimeVersionFromImage(project.buildImage),
+  );
 }
 
 /** Parse productionPaths from DB text (comma-separated) with STACKS fallback. */
