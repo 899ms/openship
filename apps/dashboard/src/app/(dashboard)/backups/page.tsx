@@ -28,7 +28,7 @@ import { Modal } from "@/components/ui/Modal";
 import DropdownMenu, { type MenuAction } from "@/components/ui/DropdownMenu";
 import { useToast } from "@/context/ToastContext";
 import { useI18n, interpolate } from "@/components/i18n-provider";
-import { CreateDestinationModal } from "./_components/CreateDestinationModal";
+import { CreateDestinationModal } from "@/components/backup/CreateDestinationModal";
 import {
   KIND_ICONS,
   EDITABLE_KINDS,
