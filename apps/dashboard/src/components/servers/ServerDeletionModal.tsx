@@ -1,13 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, Boxes, Loader2, PowerOff, ServerOff } from "lucide-react";
 import { systemApi } from "@/lib/api/system";
+import { ApiError, getApiErrorMessage } from "@/lib/api/client";
+import { isResourceOutput, ServerResourceSchemas } from "@repo/contracts";
+import { useToast } from "@/context/ToastContext";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import { getProjectStatus, PROJECT_STATUS_META, projectStatusLabel } from "@/utils/project-status";
 import {
   groupServerWorkloads,
+  serverRemovalSummary,
   serverDestroyBlockedReason,
   type ServerDeletionPreview,
   type ServerRemovalWorkloadResult,
@@ -17,14 +21,9 @@ import {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  /** Runs the DELETE. Receives the operator's explicit workload fate. */
-  onConfirm: (destroyOnSource: boolean, workloadCount: number) => void;
+  onRemoved: () => void;
   serverId: string;
   serverName: string;
-  /** Per-workload results from a 409 — rendered in place so the operator can retry
-   *  against the same list instead of re-opening a modal that lost the reason. */
-  failures?: ServerRemovalWorkloadResult[] | null;
-  busy?: boolean;
 }
 
 /**
@@ -45,14 +44,17 @@ interface Props {
 export const ServerDeletionModal = ({
   isOpen,
   onClose,
-  onConfirm,
+  onRemoved,
   serverId,
   serverName,
-  failures,
-  busy,
 }: Props) => {
   const { t } = useI18n();
   const copy = t.servers.detail.removal;
+  const titleId = useId();
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const [failures, setFailures] = useState<ServerRemovalWorkloadResult[] | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [destroyOnSource, setDestroyOnSource] = useState(false);
   const [preview, setPreview] = useState<ServerDeletionPreview | null>(null);
@@ -61,6 +63,7 @@ export const ServerDeletionModal = ({
   useEffect(() => {
     if (!isOpen) return;
     setInputValue("");
+    setFailures(null);
     // Always unchecked on open: destroying the workloads is never the default, and a
     // sticky checkbox across opens would make it one.
     setDestroyOnSource(false);
@@ -85,6 +88,62 @@ export const ServerDeletionModal = ({
       cancelled = true;
     };
   }, [isOpen, serverId]);
+
+  const onConfirm = async (destroyOnSource: boolean, workloadCount: number) => {
+    if (submitting.current) return;
+    submitting.current = true;
+    setFailures(null);
+    setBusy(true);
+    try {
+      const res = await systemApi.deleteServerEntry(serverId, { destroyOnSource, workloadCount });
+      // Every message below is derived from the RESPONSE. Reporting the flag we sent
+      // is how a delete once claimed a cascade the server never performed.
+      const summary = serverRemovalSummary(res);
+      if (summary.kind === "partial") {
+        setFailures(summary.failed);
+        showToast(
+          !res.ok ? res.error : t.servers.detail.toastFailedRemoveServer,
+          "error",
+          t.servers.toastTitles.server,
+        );
+        return;
+      }
+      onClose();
+      showToast(
+        summary.count === 0
+          ? t.servers.detail.toastServerRemoved
+          : interpolate(
+              summary.destroyed
+                ? summary.count === 1
+                  ? t.servers.detail.removal.toastRemovedDestroyedOne
+                  : t.servers.detail.removal.toastRemovedDestroyedOther
+                : summary.count === 1
+                  ? t.servers.detail.removal.toastRemovedKeptOne
+                  : t.servers.detail.removal.toastRemovedKeptOther,
+              { count: String(summary.count) },
+            ),
+        "success",
+        t.servers.toastTitles.server,
+      );
+      onRemoved();
+    } catch (err) {
+      // A 409 carries the per-workload reasons; render them in the modal so the
+      // retry is aimed rather than blind.
+      const body = err instanceof ApiError ? err.body : undefined;
+      if (isResourceOutput(ServerResourceSchemas.remove, body)) {
+        const summary = serverRemovalSummary(body);
+        if (summary.kind === "partial") setFailures(summary.failed);
+      }
+      showToast(
+        getApiErrorMessage(err, t.servers.detail.toastFailedRemoveServer),
+        "error",
+        t.servers.toastTitles.server,
+      );
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -149,6 +208,9 @@ export const ServerDeletionModal = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="w-full max-w-lg overflow-hidden rounded-2xl border border-border/60 shadow-xl"
         style={{ backgroundColor: "var(--th-card-bg-solid, var(--card))" }}
       >
@@ -158,7 +220,9 @@ export const ServerDeletionModal = ({
             <AlertTriangle className="size-[18px] text-warning" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-[15px] font-semibold text-foreground">{copy.title}</h3>
+            <h3 id={titleId} className="text-[15px] font-semibold text-foreground">
+              {copy.title}
+            </h3>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">{serverName}</p>
           </div>
         </div>
@@ -170,6 +234,8 @@ export const ServerDeletionModal = ({
               <Loader2 className="size-3.5 animate-spin" />
               {copy.scanning}
             </div>
+          ) : !preview ? (
+            <p className="text-sm text-muted-foreground">{copy.destroyUnknown}</p>
           ) : workloadCount === 0 ? (
             <p className="text-sm text-muted-foreground">{copy.noWorkloads}</p>
           ) : (
@@ -232,6 +298,7 @@ export const ServerDeletionModal = ({
               ) : (
                 <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 bg-muted/15 p-3">
                   <Checkbox
+                    disabled={busy}
                     checked={destroyOnSource}
                     onCheckedChange={setDestroyOnSource}
                     tone="destructive"
@@ -316,6 +383,7 @@ export const ServerDeletionModal = ({
             </p>
             <input
               type="text"
+              disabled={busy}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={serverName}
@@ -330,6 +398,7 @@ export const ServerDeletionModal = ({
         <div className="flex items-center justify-end gap-2 border-t border-border/40 bg-muted/[0.04] px-5 py-3">
           <button
             onClick={onClose}
+            disabled={busy}
             className="rounded-xl bg-foreground/[0.06] px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/[0.1]"
           >
             {t.servers.detail.cancel}
