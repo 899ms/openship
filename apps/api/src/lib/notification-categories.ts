@@ -116,7 +116,7 @@ export const CATEGORIES: readonly NotificationCategory[] = [
     id: "service.recovered",
     group: "app_health",
     label: "App recovered",
-    description: "An outage ended, with how long it lasted. The other half of the alert above.",
+    description: "An outage ended and the container is healthy again.",
     defaultEnabled: true,
   },
   {
