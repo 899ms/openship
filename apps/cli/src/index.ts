@@ -36,6 +36,7 @@ import { serverCommand } from "./commands/server";
 import { systemCommand } from "./commands/system";
 import { mailCommand } from "./commands/mail";
 import { backupCommand } from "./commands/backup";
+import { jobCommand } from "./commands/job";
 
 // Access & escape hatch
 import { tokenCommand } from "./commands/token";
@@ -73,7 +74,7 @@ program
     if (file) {
       let top = actionCommand;
       while (top.parent && top.parent !== thisCommand) top = top.parent;
-      if (!["project", "app", "service", "domain", "deploy", "deployment", "logs", "init", "server", "system", "backup", "status", "doctor"].includes(top.name()))
+      if (!["project", "app", "service", "domain", "deploy", "deployment", "logs", "init", "server", "system", "backup", "job", "status", "doctor"].includes(top.name()))
         throw new Error("Choose an SDK resource command with --native-config; installation and remote-login commands use a remote context.");
       await initializeNativeClient(file, cliUserAgent);
     }
@@ -127,6 +128,7 @@ program.addCommand(serverCommand);
 program.addCommand(systemCommand);
 program.addCommand(mailCommand);
 program.addCommand(backupCommand);
+program.addCommand(jobCommand);
 
 // Access + escape hatch
 program.addCommand(tokenCommand);
