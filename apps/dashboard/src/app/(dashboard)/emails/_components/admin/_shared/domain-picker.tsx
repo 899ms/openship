@@ -41,6 +41,7 @@ export function DomainPicker({
         </div>
       ) : (
         <CustomSelect
+          aria-label={label}
           className="min-w-[220px] max-w-[320px]"
           value={value}
           options={domains.map((d) => ({ value: d, label: d }))}
