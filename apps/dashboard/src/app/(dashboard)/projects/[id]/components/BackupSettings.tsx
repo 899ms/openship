@@ -279,13 +279,8 @@ export function BackupSettings(): React.JSX.Element {
                   ) : (
                     <button
                       onClick={() => setEditingPolicy({ existing: null, serviceId: null })}
-                      disabled={destinations.length === 0}
-                      title={
-                        destinations.length === 0
-                          ? t.projectSettings.backup.services.addDestinationFirst
-                          : t.projectSettings.backup.services.createPolicyHint
-                      }
-                      className="inline-flex items-center gap-1 rounded-lg bg-muted/50 px-2.5 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={t.projectSettings.backup.services.createPolicyHint}
+                      className="inline-flex items-center gap-1 rounded-lg bg-muted/50 px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
                     >
                       <Plus className="size-3" />
                       {t.projectSettings.backup.services.createPolicy}
@@ -348,13 +343,8 @@ export function BackupSettings(): React.JSX.Element {
                             serviceImage: svc.image,
                           })
                         }
-                        disabled={destinations.length === 0}
-                        title={
-                          destinations.length === 0
-                            ? t.projectSettings.backup.services.addDestinationFirst
-                            : t.projectSettings.backup.services.createPolicyHint
-                        }
-                        className="inline-flex items-center gap-1 rounded-lg bg-muted/50 px-2.5 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={t.projectSettings.backup.services.createPolicyHint}
+                        className="inline-flex items-center gap-1 rounded-lg bg-muted/50 px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
                       >
                         <Plus className="size-3" />
                         {t.projectSettings.backup.services.createPolicy}

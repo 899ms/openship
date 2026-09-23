@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Copy,
   RefreshCw,
@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Database,
   FolderTree,
+  Plus,
 } from "lucide-react";
 import {
   backupsApi,
@@ -24,6 +25,7 @@ import {
 } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 import { CustomSelect } from "@/components/ui/CustomSelect";
+import { CreateDestinationModal } from "./CreateDestinationModal";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import {
   PAYLOAD_COMPRESSION_CODECS,
@@ -199,6 +201,10 @@ export function PolicyEditor({
 
   const [destinations, setDestinations] = useState<BackupDestinationSummary[]>([]);
   const [destinationId, setDestinationId] = useState(existing?.destinationId ?? "");
+  const [showDestinationEditor, setShowDestinationEditor] = useState(false);
+  const [destinationsLoading, setDestinationsLoading] = useState(true);
+  const [destinationsError, setDestinationsError] = useState<string | null>(null);
+  const [destinationRequest, setDestinationRequest] = useState(0);
   /**
    * The kind itself, not a three-way summary of it. An existing policy therefore opens
    * on what it actually is — including a `pg_dump` pinned by hand, which the old
@@ -233,13 +239,33 @@ export function PolicyEditor({
     !!(existing?.triggerOnPreDeploy || existing?.webhookToken || existing?.preHook || existing?.postHook),
   );
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
 
   useEffect(() => {
-    void backupDestinationsApi.list().then((res) => {
-      setDestinations(res.data);
-      if (!existing && res.data.length > 0 && !destinationId) setDestinationId(res.data[0].id);
-    });
-  }, [existing, destinationId]);
+    let cancelled = false;
+    setDestinationsLoading(true);
+    setDestinationsError(null);
+    void backupDestinationsApi
+      .list()
+      .then((res) => {
+        if (cancelled) return;
+        // A destination can be created while this request is still in flight.
+        setDestinations((current) => [
+          ...res.data,
+          ...current.filter((destination) => !res.data.some((item) => item.id === destination.id)),
+        ]);
+        if (!existing) setDestinationId((current) => current || res.data[0]?.id || "");
+      })
+      .catch((error) => {
+        if (!cancelled) setDestinationsError(getApiErrorMessage(error, w.failedLoadDestinations));
+      })
+      .finally(() => {
+        if (!cancelled) setDestinationsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [existing, destinationRequest, w.failedLoadDestinations]);
 
   const detected = detectDb(serviceImage);
   const webhookUrl = existing?.webhookToken
@@ -368,6 +394,7 @@ export function PolicyEditor({
   };
 
   const submit = async () => {
+    if (submitting.current) return;
     if (!destinationId) {
       window.alert(w.selectDestinationAlert);
       return;
@@ -406,6 +433,7 @@ export function PolicyEditor({
       window.alert(invalid);
       return;
     }
+    submitting.current = true;
     setBusy(true);
     try {
       /**
@@ -448,6 +476,7 @@ export function PolicyEditor({
     } catch (err) {
       window.alert(getApiErrorMessage(err, w.failedSave));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -477,24 +506,53 @@ export function PolicyEditor({
     { value: "none", label: w.compressionNone },
   ];
 
+  if (showDestinationEditor) {
+    return (
+      <CreateDestinationModal
+        isOpen
+        onClose={() => setShowDestinationEditor(false)}
+        onSaved={(destination) => {
+          setDestinations((current) => [
+            ...current.filter((item) => item.id !== destination.id),
+            destination,
+          ]);
+          setDestinationId(destination.id);
+          setShowDestinationEditor(false);
+        }}
+      />
+    );
+  }
+
   return (
-    <Modal isOpen onClose={onClose} width="920px" maxWidth="95vw" maxHeight="88vh" overflow="hidden">
+    <Modal
+      isOpen
+      onClose={onClose}
+      closable={!busy}
+      showCloseButton={!busy}
+      width="1200px"
+      maxWidth="100%"
+      height="760px"
+      maxHeight="calc(100dvh - 4rem)"
+      overflow="hidden"
+    >
       {/* Header */}
-      <div className="shrink-0 border-b border-border/50 px-6 pt-6 pb-4 pe-12">
-        <h2 className="text-lg font-semibold text-foreground">{existing ? w.editTitle : w.createTitle}</h2>
+      <div className="shrink-0 border-b border-border/50 px-5 pt-6 pb-5 pe-14 sm:px-8 sm:pe-14">
+        <h2 className="text-xl font-semibold text-foreground">
+          {existing ? w.editTitle : w.createTitle}
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {serviceName ? interpolate(w.serviceLabel, { name: serviceName }) : w.projectLevel}
         </p>
       </div>
 
-      {/* Body — 2 columns */}
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* Left: the essentials */}
-        <div className="min-h-0 flex-[3] space-y-6 overflow-y-auto px-6 py-5">
+      {/* One scroll area keeps every field reachable on smaller screens. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_360px]">
+        {/* Left: policy configuration */}
+        <div className="min-w-0 space-y-7 px-5 py-6 sm:px-8">
           {/* Method — the hero */}
           <div>
             <label className="mb-2 block text-xs font-medium text-foreground/80">{w.methodLabel}</label>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
               {cards.map((id) => {
                 const active = activeCard === id;
                 const { label, desc, icon: Icon } = cardCopy(id);
@@ -640,11 +698,41 @@ export function PolicyEditor({
 
           <Field label={w.destination}>
             <CustomSelect<string>
+              aria-label={w.destination}
+              disabled={busy}
               value={destinationId}
               onChange={setDestinationId}
-              placeholder={w.selectOption}
-              options={destinations.map((d) => ({ value: d.id, label: d.name, description: d.kind }))}
+              placeholder={
+                destinationsLoading ? t.projectSettings.backup.destinations.loading : w.selectOption
+              }
+              options={destinations.map((d) => ({
+                value: d.id,
+                label: d.name,
+                description: d.kind,
+              }))}
+              emptyMessage={
+                destinationsLoading
+                  ? t.projectSettings.backup.destinations.loading
+                  : (destinationsError ?? t.misc.backups.emptyTitle)
+              }
+              footerAction={{
+                label: w.addDestination,
+                icon: <Plus className="size-4" />,
+                onClick: () => setShowDestinationEditor(true),
+              }}
             />
+            {destinationsError && (
+              <div role="alert" className="mt-2 flex items-center gap-2 text-xs text-danger">
+                <span className="flex-1">{destinationsError}</span>
+                <button
+                  type="button"
+                  onClick={() => setDestinationRequest((current) => current + 1)}
+                  className="shrink-0 underline"
+                >
+                  {w.retry}
+                </button>
+              </div>
+            )}
           </Field>
 
           <Field label={w.schedule}>
@@ -673,42 +761,6 @@ export function PolicyEditor({
               />
             </div>
           </Field>
-        </div>
-
-        {/* Right: live summary + retention + advanced */}
-        <div className="min-h-0 flex-[2] space-y-5 overflow-y-auto border-t border-border/50 bg-muted/[0.15] px-6 py-5 lg:border-s lg:border-t-0">
-          <div className="rounded-xl border border-border/50 bg-card p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-              {w.summaryTitle}
-            </p>
-            <dl className="space-y-2.5 text-sm">
-              <SummaryRow label={w.summaryMethod} value={methodSummary} />
-              <SummaryRow label={w.schedule} value={scheduleSummary} />
-              <SummaryRow label={w.destination} value={destName} />
-              <SummaryRow label={w.retainCount} value={retentionSummary} />
-            </dl>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={w.retainCount} hint={w.retainCountHint}>
-              <input
-                type="number"
-                value={retainCount}
-                onChange={(e) => setRetainCount(e.target.value === "" ? "" : Number(e.target.value))}
-                min={1}
-                className={inputClass}
-              />
-            </Field>
-            <Field label={w.retainDays} hint={w.retainDaysHint}>
-              <input
-                type="number"
-                value={retainDays}
-                onChange={(e) => setRetainDays(e.target.value === "" ? "" : Number(e.target.value))}
-                min={1}
-                className={inputClass}
-              />
-            </Field>
-          </div>
 
           <div>
             <button
@@ -796,15 +848,51 @@ export function PolicyEditor({
             )}
           </div>
         </div>
+
+        {/* Right: live summary + retention */}
+        <div className="min-w-0 space-y-6 border-t border-border/50 bg-muted/[0.15] px-5 py-6 sm:px-6 lg:border-s lg:border-t-0">
+          <div className="rounded-xl border border-border/50 bg-card p-4">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              {w.summaryTitle}
+            </p>
+            <dl className="space-y-2.5 text-sm">
+              <SummaryRow label={w.summaryMethod} value={methodSummary} />
+              <SummaryRow label={w.schedule} value={scheduleSummary} />
+              <SummaryRow label={w.destination} value={destName} />
+              <SummaryRow label={w.retainCount} value={retentionSummary} />
+            </dl>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={w.retainCount} hint={w.retainCountHint}>
+              <input
+                type="number"
+                value={retainCount}
+                onChange={(e) => setRetainCount(e.target.value === "" ? "" : Number(e.target.value))}
+                min={1}
+                className={inputClass}
+              />
+            </Field>
+            <Field label={w.retainDays} hint={w.retainDaysHint}>
+              <input
+                type="number"
+                value={retainDays}
+                onChange={(e) => setRetainDays(e.target.value === "" ? "" : Number(e.target.value))}
+                min={1}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+        </div>
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 flex items-center justify-between gap-3 border-t border-border/50 px-6 py-4">
+      <div className="flex shrink-0 flex-col gap-3 border-t border-border/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <label className="flex items-center gap-2 text-sm text-foreground/80">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           {w.policyEnabled}
         </label>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-end gap-2">
           <button onClick={onClose} disabled={busy} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted">
             {w.cancel}
           </button>
