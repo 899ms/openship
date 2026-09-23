@@ -16,8 +16,9 @@ import { useCloudDeployPricing } from "@/hooks/useCloudDeployPricing";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/context/ToastContext";
 import { useTheme } from "@/components/theme-provider";
-import { deployApi } from "@/lib/api";
-import { composeServiceTally } from "@/context/deployment/types";
+import { deployApi, projectsApi } from "@/lib/api";
+import { composeServiceTally, serviceLogSource } from "@/context/deployment/types";
+import { LiveServiceLogsTerminal } from "./LiveServiceLogsTerminal";
 import type { DeploymentStatus, ServiceDeployStatus } from "@/context/deployment/types";
 import type { BuildLog } from "@/utils/deploymentPhaseDetector";
 import { useI18n, interpolate } from "@/components/i18n-provider";
@@ -77,6 +78,18 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
     deploymentStatus === "failed" ||
     deploymentStatus === "cancelled";
   const services = state.serviceStatuses;
+  const projectId = state.projectId || config.projectId;
+  const [liveDeploymentId, setLiveDeploymentId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setLiveDeploymentId(null);
+    if (deploymentStatus === "ready" && !showDecision && projectId && state.deploymentId) {
+      void projectsApi.getInfo(projectId).then(response => {
+        if (active) setLiveDeploymentId(response.data?.project?.activeDeploymentId ?? null);
+      }).catch(() => { /* Keep build history when current ownership cannot be verified. */ });
+    }
+    return () => { active = false; };
+  }, [deploymentStatus, showDecision, projectId, state.deploymentId]);
   const logServiceNames = useMemo(() => {
     const seen = new Set<string>();
     const ordered: string[] = [];
@@ -391,6 +404,10 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
             activeTab={activeLogTab}
             onTabChange={handleTabChange}
             deploymentStatus={deploymentStatus}
+            decisionPending={showDecision}
+            projectId={projectId}
+            deploymentId={state.deploymentId ?? undefined}
+            isCurrentDeployment={!!state.deploymentId && liveDeploymentId === state.deploymentId}
             running={running}
             built={built}
             building={building}
@@ -622,6 +639,10 @@ function ComposeServiceLogsPanel({
   activeTab,
   onTabChange,
   deploymentStatus,
+  decisionPending,
+  projectId,
+  deploymentId,
+  isCurrentDeployment,
   running,
   built,
   building,
@@ -637,6 +658,12 @@ function ComposeServiceLogsPanel({
   activeTab: string;
   onTabChange: (tab: string) => void;
   deploymentStatus: DeploymentStatus;
+  /** Held keep/reject decision — suppresses the runtime-stream swap (#667). */
+  decisionPending?: boolean;
+  /** Needed to dial each service's live runtime log stream after success. */
+  projectId?: string;
+  deploymentId?: string;
+  isCurrentDeployment: boolean;
   running: number;
   /** Image built, container not up yet — see the ComposeSidebar tally. */
   built: number;
@@ -655,6 +682,13 @@ function ComposeServiceLogsPanel({
     const map = new Map<string, string>();
     services.forEach((service) => {
       if (service.serviceId && service.serviceName) map.set(service.serviceId, service.serviceName);
+    });
+    return map;
+  }, [services]);
+  const serviceIdByName = useMemo(() => {
+    const map = new Map<string, string>();
+    services.forEach((service) => {
+      if (service.serviceId && service.serviceName) map.set(service.serviceName, service.serviceId);
     });
     return map;
   }, [services]);
@@ -791,15 +825,39 @@ function ComposeServiceLogsPanel({
             follows: borderless depends on fill contrast, and light has none here. */}
         <div className="relative h-[420px] overflow-hidden rounded-xl border border-border/50 bg-white dark:border-transparent dark:bg-black dim:border-transparent dim:bg-black">
           {terminalTabs.length > 0 ? (
-            terminalTabs.map((tab) => (
-              <ComposeLogTerminal
-                key={tab.id}
-                logs={tab.logs}
-                active={activeTab === tab.id}
-                emptyMessage={tab.emptyMessage}
-                theme={terminalTheme}
-              />
-            ))
+            terminalTabs.map((tab) => {
+              const isPrepare = tab.id === PREPARE_TAB;
+              const serviceId = isPrepare ? undefined : serviceIdByName.get(tab.id);
+              const live =
+                !isPrepare &&
+                !!projectId &&
+                !!deploymentId &&
+                !!serviceId &&
+                serviceLogSource({
+                  deploymentStatus,
+                  decisionPending,
+                  isCurrentDeployment,
+                  serviceStatus: serviceStatusByName.get(tab.id),
+                }) === "runtime";
+              return live ? (
+                <LiveServiceLogsTerminal
+                  key={tab.id}
+                  projectId={projectId}
+                  deploymentId={deploymentId}
+                  serviceId={serviceId}
+                  active={activeTab === tab.id}
+                  theme={terminalTheme}
+                />
+              ) : (
+                <ComposeLogTerminal
+                  key={tab.id}
+                  logs={tab.logs}
+                  active={activeTab === tab.id}
+                  emptyMessage={tab.emptyMessage}
+                  theme={terminalTheme}
+                />
+              );
+            })
           ) : (
             <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
               <p className="text-sm text-muted-foreground">{cd.preparingServiceLogs}</p>
