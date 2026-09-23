@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/button";
-import { ServerSelector } from "@/components/shared";
+import ServerSelector from "@/components/shared/ServerSelector";
 import {
   backupDestinationsApi,
   type BackupDestinationSummary,
@@ -192,7 +192,7 @@ function kindMeta(kind: Kind, m: Record<string, string>): { description: string;
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (destination: BackupDestinationSummary) => void | Promise<void>;
   /** When set, the modal edits this destination instead of creating one:
    *  the kind picker is skipped, fields are pre-filled, and secrets are left
    *  blank (blank = keep the stored value). */
@@ -360,7 +360,7 @@ function ConfigureForm({
   kind: Kind;
   destination: BackupDestinationSummary | null;
   onCancel: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: Props["onSaved"];
 }) {
   const { t } = useI18n();
   const m = t.misc.backups;
@@ -462,14 +462,15 @@ function ConfigureForm({
     const input = buildInput();
     setBusy(true);
     try {
+      let saved;
       if (editing && destination) {
         // Kind is immutable — never send it on update.
         const { kind: _kind, ...patch } = input;
-        await backupDestinationsApi.update(destination.id, patch);
+        saved = await backupDestinationsApi.update(destination.id, patch);
       } else {
-        await backupDestinationsApi.create(input);
+        saved = await backupDestinationsApi.create(input);
       }
-      await onSaved();
+      await onSaved(saved.data);
     } catch (err) {
       setError(
         getApiErrorMessage(err, editing ? m.updateFailed : m.createFailed),
