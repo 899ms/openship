@@ -4,11 +4,11 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Rocket, Activity, CheckCircle2, XCircle, Loader2, Zap, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { deployApi, projectsApi, getApiErrorMessage } from "@/lib/api";
-import type { DeploymentHistoryFilter } from "@repo/core";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import { DeploymentsFilters } from "./DeploymentsFilters";
 import { DeploymentsList } from "./DeploymentsList";
 import { LoadingSkeleton } from "./LoadingSkeleton";
+import { useDeploymentHistoryQuery } from "./use-deployment-history-query";
 import type { Deployment, Project } from "../types";
 import {
   calculateDeploymentStats,
@@ -47,12 +47,7 @@ const DeploymentHistory: React.FC<DeploymentsContentProps> = ({
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
-  const [query, setQuery] = useState({
-    page: 1,
-    filter: "all" as DeploymentHistoryFilter | "all",
-    searchQuery: "",
-    selectedProjectId: "all",
-  });
+  const [query, setQuery] = useDeploymentHistoryQuery(isProject);
   const { page, filter, searchQuery, selectedProjectId } = query;
   const refreshDeployments = useCallback(() => setRevision((value) => value + 1), []);
 
@@ -103,7 +98,7 @@ const DeploymentHistory: React.FC<DeploymentsContentProps> = ({
       if (!controller.signal.aborted) setIsLoading(false);
     });
     return () => controller.abort();
-  }, [projectId, projectName, isProject, page, filter, searchQuery, selectedProjectId, revision, t.deployments.loadFailed]);
+  }, [projectId, projectName, isProject, page, filter, searchQuery, selectedProjectId, revision, t.deployments.loadFailed, setQuery]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
