@@ -17,6 +17,7 @@ import {
   verifyOtpEmailTemplate,
 } from "./email-templates";
 import { provisionUser } from "./provision-user";
+import { socialProviderCredentials } from "./auth-providers";
 
 /**
  * Better Auth - handles registration, login, OAuth, sessions, tokens.
@@ -77,6 +78,8 @@ function getSharedCookieDomain() {
 
 const sharedCookieDomain = getSharedCookieDomain();
 const useSessionCookieCache = getDriver() !== "pglite";
+const githubOAuth = socialProviderCredentials("github");
+const googleOAuth = socialProviderCredentials("google");
 
 export const auth = betterAuth({
   basePath: "/api/auth",
@@ -165,11 +168,10 @@ export const auth = betterAuth({
 
   /* ---------- OAuth Providers ---------- */
   socialProviders: {
-    ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+    ...(githubOAuth
       ? {
           github: {
-            clientId: env.GITHUB_CLIENT_ID,
-            clientSecret: env.GITHUB_CLIENT_SECRET,
+            ...githubOAuth,
             scope: ["read:user", "user:email"],
             mapProfileToUser: (profile: any) => ({
               name: profile.name || profile.login,
@@ -179,14 +181,7 @@ export const auth = betterAuth({
           },
         }
       : {}),
-    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
-      ? {
-          google: {
-            clientId: env.GOOGLE_CLIENT_ID,
-            clientSecret: env.GOOGLE_CLIENT_SECRET,
-          },
-        }
-      : {}),
+    ...(googleOAuth ? { google: googleOAuth } : {}),
   },
 
   /* ---------- Account Linking ---------- */

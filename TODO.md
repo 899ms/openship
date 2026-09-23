@@ -106,7 +106,7 @@ email + password.
 
 What's already there:
 
-- better-auth with the org plugin in `apps/api/src/lib/auth.ts`. The installed
+- better-auth with the org plugin in `packages/platform/src/engine/lib/auth.ts`. The installed
   plugin set includes **`generic-oauth`** — arbitrary OIDC/OAuth2 issuers, no new
   dependency. That's the cheap path.
 - Not `better-auth/plugins/oidc-provider` — that makes Openship *an* IdP, the
@@ -118,15 +118,12 @@ What's already there:
 
 The prerequisite nobody expects:
 
-- [ ] **The button can't just be added.** Social login is hidden on self-hosted
-      outright today — `{!selfHosted && <OAuthButtons/>}` at
-      `apps/dashboard/src/app/(auth)/login/page.tsx:312` and
-      `register/page.tsx` — because an operator with no `GITHUB_CLIENT_ID`
-      would get buttons that fail, and **nothing tells the dashboard which
-      providers are configured**. `OAuthButtons` hardcodes github+google. SSO
-      needs a server-advertised provider list (public, read-only, alongside the
-      `authMode`/`selfHosted` values `useAuthContext` already serves). That
-      endpoint doesn't exist yet and is the real first task.
+- [x] **Advertise configured login providers.** Shared system info and
+      `GET /health/env` expose `authProviders` (IDs and kinds only). The engine's
+      `auth-providers.ts` supplies the same credential predicate to Better Auth;
+      login and registration render only supported, advertised providers.
+      This completes discovery for existing GitHub/Google login. OIDC/SAML
+      integration and its account policies remain separate work.
 
 Decisions to settle before coding:
 
@@ -227,9 +224,9 @@ What actually hardcodes GitHub — each is a decision, not a rename:
       already covers the generic case; GitLab releases would be a third mode.
 - [ ] **Dashboard speaks GitHub throughout**: `ServerGitHubConnect`,
       `GithubPermissionModal`, `DeployCredentialModal`, the deploy wizard's
-      import step, `ResourcePicker`. Needs a server-advertised provider list —
-      the SAME missing primitive as the SSO item above (`OAuthButtons` hardcodes
-      github+google). Build that endpoint once and both features use it.
+      import step, `ResourcePicker`. Git-provider capabilities still need a
+      server-advertised list; the existing `authProviders` field covers login
+      providers only and must not be used as a list of repository integrations.
 - [ ] **`gh` CLI as an ambient identity** (`sources/gh-cli-source.ts`,
       `github.local-auth.ts` parses `oauth_token` under `github.com:` in
       hosts.yml) has no equivalent worth matching. `glab` exists; decide
