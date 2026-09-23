@@ -525,8 +525,8 @@ export function PolicyEditor({
       onClose={onClose}
       width="1200px"
       maxWidth="100%"
-      height="860px"
-      maxHeight="calc(100dvh - 2rem)"
+      height="760px"
+      maxHeight="calc(100dvh - 4rem)"
       overflow="hidden"
     >
       {/* Header */}
@@ -541,7 +541,7 @@ export function PolicyEditor({
 
       {/* One scroll area keeps every field reachable on smaller screens. */}
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_360px]">
-        {/* Left: the essentials */}
+        {/* Left: policy configuration */}
         <div className="min-w-0 space-y-7 px-5 py-6 sm:px-8">
           {/* Method — the hero */}
           <div>
@@ -754,42 +754,6 @@ export function PolicyEditor({
               />
             </div>
           </Field>
-        </div>
-
-        {/* Right: live summary + retention + advanced */}
-        <div className="min-w-0 space-y-6 border-t border-border/50 bg-muted/[0.15] px-5 py-6 sm:px-6 lg:border-s lg:border-t-0">
-          <div className="rounded-xl border border-border/50 bg-card p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-              {w.summaryTitle}
-            </p>
-            <dl className="space-y-2.5 text-sm">
-              <SummaryRow label={w.summaryMethod} value={methodSummary} />
-              <SummaryRow label={w.schedule} value={scheduleSummary} />
-              <SummaryRow label={w.destination} value={destName} />
-              <SummaryRow label={w.retainCount} value={retentionSummary} />
-            </dl>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={w.retainCount} hint={w.retainCountHint}>
-              <input
-                type="number"
-                value={retainCount}
-                onChange={(e) => setRetainCount(e.target.value === "" ? "" : Number(e.target.value))}
-                min={1}
-                className={inputClass}
-              />
-            </Field>
-            <Field label={w.retainDays} hint={w.retainDaysHint}>
-              <input
-                type="number"
-                value={retainDays}
-                onChange={(e) => setRetainDays(e.target.value === "" ? "" : Number(e.target.value))}
-                min={1}
-                className={inputClass}
-              />
-            </Field>
-          </div>
 
           <div>
             <button
@@ -875,6 +839,42 @@ export function PolicyEditor({
                 </Field>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Right: live summary + retention */}
+        <div className="min-w-0 space-y-6 border-t border-border/50 bg-muted/[0.15] px-5 py-6 sm:px-6 lg:border-s lg:border-t-0">
+          <div className="rounded-xl border border-border/50 bg-card p-4">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              {w.summaryTitle}
+            </p>
+            <dl className="space-y-2.5 text-sm">
+              <SummaryRow label={w.summaryMethod} value={methodSummary} />
+              <SummaryRow label={w.schedule} value={scheduleSummary} />
+              <SummaryRow label={w.destination} value={destName} />
+              <SummaryRow label={w.retainCount} value={retentionSummary} />
+            </dl>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={w.retainCount} hint={w.retainCountHint}>
+              <input
+                type="number"
+                value={retainCount}
+                onChange={(e) => setRetainCount(e.target.value === "" ? "" : Number(e.target.value))}
+                min={1}
+                className={inputClass}
+              />
+            </Field>
+            <Field label={w.retainDays} hint={w.retainDaysHint}>
+              <input
+                type="number"
+                value={retainDays}
+                onChange={(e) => setRetainDays(e.target.value === "" ? "" : Number(e.target.value))}
+                min={1}
+                className={inputClass}
+              />
+            </Field>
           </div>
         </div>
       </div>
