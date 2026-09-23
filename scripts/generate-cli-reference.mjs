@@ -1,6 +1,6 @@
 /** Generate command syntax from the built public CLI; no command actions run. */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cliSurface, docsDirectory } from "./docs-surface.mjs";
 
@@ -8,7 +8,7 @@ const categories = {
   Connect: ["login", "logout", "context", "token", "api"],
   Deploy: ["init", "config", "deploy", "deployment", "logs"],
   Applications: ["project", "app", "service", "domain"],
-  Infrastructure: ["server", "backup", "edge", "mail", "system"],
+  Infrastructure: ["job", "server", "backup", "edge", "mail", "system"],
   "Local installation": [
     "up",
     "stop",
@@ -37,6 +37,7 @@ const guides = {
   app: "projects",
   service: "projects",
   domain: "projects",
+  job: "../guides/jobs",
   server: "self-host",
   backup: "self-host",
   edge: "edge",
@@ -93,7 +94,8 @@ export function renderCliReference(catalog) {
     const name = command.split(" ").slice(1).join(" ");
     const family = command.split(" ")[1];
     let body = `---\ntitle: ${name}\ndescription: Commands, arguments, and options for ${command}.\ncliGroup: ${command}\n---\n\n`;
-    body += `See the [${guides[family] ? "workflow guide" : "CLI overview"}](/docs/cli${guides[family] ? "/" + guides[family] : ""}) for examples. `;
+    const guidePath = posix.join("/docs/cli", guides[family] ?? "");
+    body += `See the [${guides[family] ? "workflow guide" : "CLI overview"}](${guidePath}) for examples. `;
     body += `Global flags such as \`--json\` go before the command; see [global options](/docs/cli/reference#global-options).\n\n`;
     for (const entry of catalog.filter((entry) => owner(entry.command) === command)) {
       body += `## ${entry.command}\n\n${prose(entry.description) || "Use this command with the arguments below."}\n\n\`\`\`text\n${entry.usage}\n\`\`\`\n\n`;
