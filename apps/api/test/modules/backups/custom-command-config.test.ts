@@ -36,6 +36,8 @@ const h = vi.hoisted(() => ({
   etag: null as string | null,
   /** Terminal status + patch history for the run row. */
   row: {} as Record<string, unknown>,
+  runtime: { name: "bare" },
+  disposeRuntime: vi.fn(),
 }));
 
 vi.mock("@repo/db", () => ({
@@ -129,11 +131,9 @@ vi.mock("@repo/platform/engine/lib/job-runner/index", () => ({
   getJobRunner: async () => ({ enqueueRun: async () => {} }),
 }));
 vi.mock("@repo/platform/engine/lib/deployment-runtime", () => ({
-  // The orchestrator releases the runtime it resolved when the run ends; these
-  // stubs hold no transport, so the release is a no-op here.
-  disposeRuntime: () => {},
+  disposeRuntime: h.disposeRuntime,
   disposePlatform: () => {},
-  resolveTargetPlatform: async () => ({ runtime: { name: "bare" } }),
+  resolveTargetPlatform: async () => ({ runtime: h.runtime }),
   resolveDeploymentPlatform: async () => ({ platform: { runtime: { name: "bare" } } }),
 }));
 vi.mock("@repo/platform/engine/lib/encryption", () => ({ decryptEnvMap: (v: unknown) => v }));
@@ -171,6 +171,7 @@ beforeEach(() => {
   h.puts.length = 0;
   h.etag = null;
   h.row = {};
+  h.disposeRuntime.mockClear();
 });
 
 describe("a mail policy's payloadConfig reaches the producer", () => {
@@ -189,6 +190,7 @@ describe("a mail policy's payloadConfig reaches the producer", () => {
     expect(h.row.errorMessage).toBeUndefined();
     expect(h.execCommands).toHaveLength(1);
     expect(h.execCommands[0]).toBe(mail.payloadConfig.produceCommand);
+    expect(h.disposeRuntime).toHaveBeenCalledExactlyOnceWith(h.runtime);
   });
 
   it("records a restoreCommand, which is the whole point", async () => {
@@ -383,6 +385,7 @@ describe("payloadConfig forwarding is not mail-specific", () => {
 
     expect(h.row.status).toBe("failed");
     expect(String(h.row.errorMessage)).toContain("produceCommand");
+    expect(h.disposeRuntime).toHaveBeenCalledExactlyOnceWith(h.runtime);
   });
 });
 
