@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import Link from "next/link";
 import { ArrowRight, FolderOpen, GitBranch, Globe, Server } from "lucide-react";
 import { type Project } from "@/constants/mock";
@@ -10,6 +10,7 @@ import { getProjectStatus, projectDisplayDomain } from "@/utils/project-status";
 import { ProjectStatusBadge } from "@/components/shared/ProjectStatusBadge";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import { timeAgo } from "@/lib/time";
+import { useImageFallback } from "@/hooks/useImageFallback";
 import { getHostingLabel } from "./ProjectCard";
 
 /**
@@ -32,7 +33,7 @@ const ProjectGridCard: React.FC<{
   const { t } = useI18n();
   const status = getProjectStatus(project);
   const fw = getFrameworkConfig(project.framework);
-  const [faviconError, setFaviconError] = useState(false);
+  const favicon = useImageFallback(project.favicon);
 
   const isLocal = !!project.localPath;
   const hasRepo = !!(project.gitOwner && project.gitRepo);
@@ -40,7 +41,6 @@ const ProjectGridCard: React.FC<{
   const hasMultipleServices =
     project.hasMultipleServices === true || Number(project.serviceCount ?? 0) > 1;
   const hosting = getHostingLabel(project.deployTarget, project.serverName, t);
-  const hasFavicon = !!project.favicon && !faviconError;
   const appTemplateId = (project as { appTemplateId?: string }).appTemplateId;
   const isDraftApp = !!project.isApp && status === "draft" && !!appTemplateId;
   const clickTarget = isDraftApp
@@ -56,13 +56,14 @@ const ProjectGridCard: React.FC<{
         <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/60 transition-colors group-hover:bg-muted">
           {preferAppLogo && project.isApp ? (
             <AppLogo appId={appTemplateId} className="size-6 object-contain" />
-          ) : hasFavicon ? (
+          ) : favicon.showImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
+              ref={favicon.ref}
               src={project.favicon!}
               alt=""
               className="size-6 object-contain"
-              onError={() => setFaviconError(true)}
+              onError={favicon.onError}
             />
           ) : (
             fw.icon("var(--foreground)")

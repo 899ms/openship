@@ -157,7 +157,8 @@ function MailServerCard({
         </Link>
       </div>
 
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      {/* Give the hostname and webmail action separate rows on phones. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground mb-1.5">
             {t.emailsAdmin.overview.hostname}
