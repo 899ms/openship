@@ -79,7 +79,7 @@ const bucketRank = (b: InfraBucket | null) => (b ? BUCKET_RANK[b] : 3);
 const STATUS: Record<Reachability, { dot: string; text: string }> = {
   online: { dot: "border-success-solid", text: "text-success" },
   offline: { dot: "border-danger-solid", text: "text-danger" },
-  checking: { dot: "border-warning-solid animate-pulse", text: "text-muted-foreground/70" },
+  checking: { dot: "border-warning-solid animate-pulse", text: "text-muted-foreground" },
 };
 
 export default function ServersPage() {
@@ -358,7 +358,7 @@ export default function ServersPage() {
           <h1 className="text-2xl font-medium text-foreground/80" style={{ letterSpacing: "-0.2px" }}>
             {t.servers.list.title}
           </h1>
-          <p className="text-sm text-muted-foreground/70 mt-1">{t.servers.list.subtitle}</p>
+          <p className="text-sm text-muted-foreground mt-1">{t.servers.list.subtitle}</p>
         </div>
         {activeTab === "servers" &&
           (canAddThisMachine ? (
@@ -461,8 +461,25 @@ export default function ServersPage() {
 
       {activeTab === "servers" &&
         (loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <div role="status" className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
+            <span className="sr-only">{t.widgets.shared.serverSelector.loadingServers}</span>
+            <div aria-hidden="true" className="min-w-0">
+              <div className="overflow-hidden rounded-2xl border border-border/50 bg-card divide-y divide-border/50">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3.5 px-5 py-3 animate-pulse">
+                    <div className="size-9 shrink-0 rounded-xl bg-muted" />
+                    <div className="min-w-0 flex-1 space-y-1.5 sm:w-44 sm:flex-none lg:w-56">
+                      <div className="h-3.5 w-32 max-w-full rounded bg-muted" />
+                      <div className="h-3 w-24 max-w-full rounded bg-muted" />
+                    </div>
+                    <div className="hidden min-w-0 flex-1 items-center gap-3 sm:flex">
+                      <div className="h-5 w-20 rounded-md bg-muted" />
+                    </div>
+                    <div className="hidden h-3.5 w-16 shrink-0 rounded bg-muted sm:block" />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         ) : servers.length === 0 ? (
           // Empty state stands alone (no Quick Info card) and centers.
@@ -766,7 +783,7 @@ function EmptyState({
       <h3 className="text-2xl font-medium text-foreground/80 mb-2" style={{ letterSpacing: "-0.2px" }}>
         {t.servers.list.emptyTitle}
       </h3>
-      <p className="text-sm text-muted-foreground/70 max-w-sm mx-auto mb-8 leading-relaxed">
+      <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-8 leading-relaxed">
         {t.servers.list.emptyDescription}
       </p>
 

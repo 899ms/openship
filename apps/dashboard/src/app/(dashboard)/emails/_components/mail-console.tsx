@@ -940,7 +940,7 @@ function MailConsoleInner() {
                 {headerTitle}
               </h1>
               {headerSubtitle && (
-                <p className="text-sm text-muted-foreground/70 mt-1 max-w-2xl">
+                <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
                   {headerSubtitle}
                 </p>
               )}

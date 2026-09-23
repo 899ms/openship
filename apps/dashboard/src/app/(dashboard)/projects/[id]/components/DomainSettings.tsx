@@ -2863,7 +2863,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 function ValueBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-border/50 bg-muted/25 px-4 py-3">
-      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </div>
       <div className="mt-2 break-all text-[14px] font-semibold text-foreground">{value}</div>
