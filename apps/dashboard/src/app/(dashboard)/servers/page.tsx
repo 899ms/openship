@@ -23,6 +23,7 @@ import {
   MapPin,
   HardDrive,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { getApiErrorMessage, systemApi } from "@/lib/api";
 import type { ContainerApplyActive, ContainerApplyIntent } from "@/lib/api/system";
@@ -41,6 +42,7 @@ import type { ClusterCapabilities } from "@repo/contracts";
 import { privateNetworksApi } from "@/lib/api/private-networks";
 import { ServerClustersPanel } from "@/components/servers/clusters/ServerClustersPanel";
 import { useServerClustersOverview } from "@/hooks/useServerClustersOverview";
+import { ServerDeletionModal } from "@/components/servers/ServerDeletionModal";
 import * as CountryFlags from "country-flag-icons/react/3x2";
 
 const FLAGS = CountryFlags as Record<
@@ -123,6 +125,7 @@ export default function ServersPage() {
     };
   }, [clustersEligible, clusterCapabilitiesAttempt]);
   const [servers, setServers] = useState<ServerEntry[]>([]);
+  const [removeServer, setRemoveServer] = useState<ServerEntry | null>(null);
   const [loading, setLoading] = useState(true);
   /** Live reachability per server (see probeReachability). */
   const [reach, setReach] = useState<Record<string, Reachability>>({});
@@ -480,7 +483,7 @@ export default function ServersPage() {
                   counts={infra.counts}
                 />
               )}
-              <div className="overflow-hidden rounded-2xl border border-border/50 bg-card divide-y divide-border/50">
+              <div className="rounded-2xl border border-border/50 bg-card divide-y divide-border/50">
                 {visibleServers.length === 0 && (
                   <p className="px-5 py-8 text-center text-sm text-muted-foreground">{ic.noMatches}</p>
                 )}
@@ -508,104 +511,115 @@ export default function ServersPage() {
                       ]
                     : [];
                   return (
-                    <Link
-                      key={server.id}
-                      href={`/servers/${server.id}`}
-                      className="group flex w-full items-center gap-3.5 px-5 py-3 text-start transition-colors hover:bg-muted/40"
-                    >
-                      {/* Avatar — full country flag when we can geolocate the IP, else glyph.
-                          Fixed 36px slot keeps the name column aligned across rows. */}
-                      {(() => {
-                        const Flag = server.country ? FLAGS[server.country] : undefined;
-                        return Flag ? (
-                          <div className="flex size-9 shrink-0 items-center justify-center">
-                            <Flag
-                              title={server.country ?? undefined}
-                              className="h-[18px] w-auto rounded-[2px] ring-1 ring-border/50"
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted/60 transition-colors group-hover:bg-muted">
-                            <Server className="size-[18px] text-foreground/70" />
-                          </div>
-                        );
-                      })()}
+                    <div key={server.id} className="flex items-center pe-3">
+                      <Link
+                        href={`/servers/${server.id}`}
+                        className="group flex min-w-0 flex-1 items-center gap-3.5 px-5 py-3 text-start transition-colors hover:bg-muted/40"
+                      >
+                        {/* Avatar — full country flag when we can geolocate the IP, else glyph.
+                            Fixed 36px slot keeps the name column aligned across rows. */}
+                        {(() => {
+                          const Flag = server.country ? FLAGS[server.country] : undefined;
+                          return Flag ? (
+                            <div className="flex size-9 shrink-0 items-center justify-center">
+                              <Flag
+                                title={server.country ?? undefined}
+                                className="h-[18px] w-auto rounded-[2px] ring-1 ring-border/50"
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted/60 transition-colors group-hover:bg-muted">
+                              <Server className="size-[18px] text-foreground/70" />
+                            </div>
+                          );
+                        })()}
 
-                      {/* Name + host (fixed column — keeps meta aligned, no dead gap) */}
-                      <div className="w-44 min-w-0 shrink-0 text-start lg:w-56">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {server.name}
-                          {server.isLocal && (
-                            <span className="ms-2 rounded bg-info/10 px-1.5 py-0.5 text-[10px] font-medium text-info align-middle">
-                              {t.servers.list.thisServer}
+                        {/* Name + host (fixed column — keeps meta aligned, no dead gap) */}
+                        <div className="w-44 min-w-0 shrink-0 text-start lg:w-56">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {server.name}
+                            {server.isLocal && (
+                              <span className="ms-2 rounded bg-info/10 px-1.5 py-0.5 text-[10px] font-medium text-info align-middle">
+                                {t.servers.list.thisServer}
+                              </span>
+                            )}
+                          </p>
+                          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                            {server.isLocal ? t.servers.list.currentHost : <BlurIp>{server.host}</BlurIp>}
+                          </p>
+                        </div>
+
+                        {/* Meta chips */}
+                        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+                          {/* Nothing deployed → no chip at all. A greyed-out "0" beside
+                              a layers glyph is noise that reads as an error. With
+                              projects, the count is spelled out ("1 project") instead
+                              of leaving an icon to carry the meaning. */}
+                          {server.projectCount > 0 && (
+                            <span className="inline-flex shrink-0 items-center rounded-md bg-muted/60 px-2 py-0.5 text-xs text-foreground/80">
+                              {interpolate(
+                                server.projectCount === 1
+                                  ? t.servers.list.projectCountOne
+                                  : t.servers.list.projectCountMany,
+                                { n: String(server.projectCount) },
+                              )}
                             </span>
                           )}
-                        </p>
-                        <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-                          {server.isLocal ? t.servers.list.currentHost : <BlurIp>{server.host}</BlurIp>}
-                        </p>
-                      </div>
+                          {downParts.length > 0 ? (
+                            <span className="inline-flex shrink-0 items-center rounded-md bg-danger-bg px-2 py-0.5 text-xs font-medium text-danger">
+                              {downParts.join(" · ")}
+                            </span>
+                          ) : comp && comp.applying > 0 ? (
+                            // Mid-apply outranks the drift it is fixing: the row would
+                            // otherwise keep offering "1 update" for a swap already running.
+                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-info-bg px-2 py-0.5 text-xs font-medium text-info">
+                              <Loader2 className="size-3 animate-spin" />
+                              {ic.chipUpdating}
+                            </span>
+                          ) : comp && comp.updates > 0 ? (
+                            <span className="inline-flex shrink-0 items-center rounded-md bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning">
+                              {interpolate(comp.updates === 1 ? ic.chipUpdateOne : ic.chipUpdates, {
+                                n: String(comp.updates),
+                              })}
+                            </span>
+                          ) : null}
+                          {authLabel && (
+                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
+                              <AuthIcon className="size-3.5" />
+                              {authLabel}
+                            </span>
+                          )}
+                          {isDesktop && fwd > 0 && (
+                            <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground md:inline-flex">
+                              <Network className="size-3.5" />
+                              {interpolate(t.servers.list.forwarding, { n: String(fwd) })}
+                            </span>
+                          )}
+                        </div>
 
-                      {/* Meta chips */}
-                      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
-                        {/* Nothing deployed → no chip at all. A greyed-out "0" beside
-                            a layers glyph is noise that reads as an error. With
-                            projects, the count is spelled out ("1 project") instead
-                            of leaving an icon to carry the meaning. */}
-                        {server.projectCount > 0 && (
-                          <span className="inline-flex shrink-0 items-center rounded-md bg-muted/60 px-2 py-0.5 text-xs text-foreground/80">
-                            {interpolate(
-                              server.projectCount === 1
-                                ? t.servers.list.projectCountOne
-                                : t.servers.list.projectCountMany,
-                              { n: String(server.projectCount) },
-                            )}
+                        {/* Status state + arrow */}
+                        <div className="flex shrink-0 items-center gap-4">
+                          <span
+                            title={reachHint[server.id] ?? t.servers.list[state]}
+                            className={`inline-flex items-center gap-1.5 text-xs font-medium ${sm.text}`}
+                          >
+                            <span className={`size-2.5 rounded-full border-2 ${sm.dot}`} />
+                            {t.servers.list[state]}
                           </span>
-                        )}
-                        {downParts.length > 0 ? (
-                          <span className="inline-flex shrink-0 items-center rounded-md bg-danger-bg px-2 py-0.5 text-xs font-medium text-danger">
-                            {downParts.join(" · ")}
-                          </span>
-                        ) : comp && comp.applying > 0 ? (
-                          // Mid-apply outranks the drift it is fixing: the row would
-                          // otherwise keep offering "1 update" for a swap already running.
-                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-info-bg px-2 py-0.5 text-xs font-medium text-info">
-                            <Loader2 className="size-3 animate-spin" />
-                            {ic.chipUpdating}
-                          </span>
-                        ) : comp && comp.updates > 0 ? (
-                          <span className="inline-flex shrink-0 items-center rounded-md bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning">
-                            {interpolate(comp.updates === 1 ? ic.chipUpdateOne : ic.chipUpdates, {
-                              n: String(comp.updates),
-                            })}
-                          </span>
-                        ) : null}
-                        {authLabel && (
-                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
-                            <AuthIcon className="size-3.5" />
-                            {authLabel}
-                          </span>
-                        )}
-                        {isDesktop && fwd > 0 && (
-                          <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground md:inline-flex">
-                            <Network className="size-3.5" />
-                            {interpolate(t.servers.list.forwarding, { n: String(fwd) })}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Status state + arrow */}
-                      <div className="flex shrink-0 items-center gap-4">
-                        <span
-                          title={reachHint[server.id] ?? t.servers.list[state]}
-                          className={`inline-flex items-center gap-1.5 text-xs font-medium ${sm.text}`}
-                        >
-                          <span className={`size-2.5 rounded-full border-2 ${sm.dot}`} />
-                          {t.servers.list[state]}
-                        </span>
-                        <ArrowRight className="size-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground rtl:rotate-180" />
-                      </div>
-                    </Link>
+                          <ArrowRight className="size-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground rtl:rotate-180" />
+                        </div>
+                      </Link>
+                      <DropdownMenu
+                        triggerLabel={`${server.name}: ${t.servers.detail.removeServer}`}
+                        actions={[{
+                          id: "remove",
+                          label: t.servers.detail.removeServer,
+                          icon: <Trash2 className="size-4" />,
+                          variant: "danger",
+                          onClick: () => setRemoveServer(server),
+                        }]}
+                      />
+                    </div>
                   );
                 })}
               </div>
@@ -686,6 +700,19 @@ export default function ServersPage() {
           </div>
         </div>
       ))}
+      {removeServer && (
+        <ServerDeletionModal
+          key={removeServer.id}
+          isOpen
+          serverId={removeServer.id}
+          serverName={removeServer.name}
+          onClose={() => setRemoveServer(null)}
+          onRemoved={() => {
+            setServers((current) => current.filter((server) => server.id !== removeServer.id));
+            void infra.reload();
+          }}
+        />
+      )}
     </PageContainer>
   );
 }
