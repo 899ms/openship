@@ -1,12 +1,21 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { baseDictionary } from "@/i18n";
 import { DeploymentsContent } from "./DeploymentsContent";
 
 const h = vi.hoisted(() => ({ project: vi.fn(), all: vi.fn() }));
+const navigationListeners = new Set<() => void>();
+vi.mock("next/navigation", () => ({
+  usePathname: () => window.location.pathname,
+  useSearchParams: () => new URLSearchParams(useSyncExternalStore(
+    listener => { navigationListeners.add(listener); return () => { navigationListeners.delete(listener); }; },
+    () => window.location.search,
+    () => "",
+  )),
+}));
 vi.mock("@/lib/api", () => ({
   projectsApi: { getDeployments: h.project },
   deployApi: { getAll: h.all },
@@ -38,6 +47,12 @@ function pageResponse(page = 1, total = 45, projectId = "project") {
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
+  window.history.replaceState(null, "", "/deployments");
+  const replace = window.history.replaceState.bind(window.history);
+  vi.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
+    replace(data, unused, url);
+    for (const listener of navigationListeners) listener();
+  });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   h.project.mockReset().mockImplementation(async (id, params) => pageResponse(params?.page, 45, id));
   h.all.mockReset().mockImplementation(async (params) => pageResponse(params?.page));
@@ -48,6 +63,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
