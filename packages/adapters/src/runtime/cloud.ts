@@ -26,6 +26,7 @@ import {
   type DeploymentResult,
   type LogEntry,
   type LogCallback,
+  type RuntimeLogStreamOptions,
   type CommandExecutor,
   type ContainerInfo,
   type ResourceUsage,
@@ -2611,7 +2612,7 @@ fi`;
   async streamRuntimeLogs(
     containerId: string,
     onLog: LogCallback,
-    opts?: { tail?: number },
+    opts?: RuntimeLogStreamOptions,
   ): Promise<() => void> {
     let cancelled = false;
 
@@ -2663,16 +2664,19 @@ fi`;
               if (cancelled) break;
               emitText(event.message, "info", event.timestamp);
             }
-          } catch {
-            // Stream ended or was cancelled
+          } catch (error) {
+            if (!cancelled) throw error;
           }
         }
-      } catch {
-        // Stream ended or was cancelled
+      } catch (error) {
+        if (!cancelled) throw error;
       }
     };
 
-    void run();
+    void run().then(
+      () => { if (!cancelled) opts?.onEnd?.(); },
+      (error) => { if (!cancelled) opts?.onEnd?.(new Error(safeErrorMessage(error))); },
+    );
     return () => {
       cancelled = true;
     };

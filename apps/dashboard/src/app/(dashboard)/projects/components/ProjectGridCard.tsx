@@ -28,7 +28,8 @@ const ProjectGridCard: React.FC<{
    *  (constants/mock) yet, so it's spelled out here rather than cast away. */
   project: Project & { primaryDomain?: string | null };
   preferAppLogo?: boolean;
-}> = ({ project, preferAppLogo }) => {
+  updateAvailable?: boolean;
+}> = ({ project, preferAppLogo, updateAvailable }) => {
   const { t } = useI18n();
   const status = getProjectStatus(project);
   const fw = getFrameworkConfig(project.framework);
@@ -72,6 +73,11 @@ const ProjectGridCard: React.FC<{
         <div className="min-w-0 flex-1 text-start">
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-medium text-foreground">{project.name}</p>
+            {updateAvailable && (
+              <span className="shrink-0 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+                {t.projects.card.updateAvailable}
+              </span>
+            )}
             {project.activeVersion != null && (
               <span
                 className="shrink-0 rounded-md bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground"

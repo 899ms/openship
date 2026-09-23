@@ -66,7 +66,8 @@
   --th-text-strong:    rgba(0,0,0,.82);
   --th-text-body:      rgba(0,0,0,.66);
   --th-text-secondary: rgba(0,0,0,.58);
-  --th-text-muted:     rgba(0,0,0,.52);
+  /* Readable on both the page and cards; text must not add another opacity. */
+  --th-text-muted:     rgba(0,0,0,.58);
   --th-text-label:     rgba(0,0,0,.52);
   --th-text-hint:      rgba(0,0,0,.46);
   --th-text-ghost:     rgba(0,0,0,.22);
@@ -149,7 +150,8 @@
      with dark), text-X-600 on light. */
   --st-success-fg: #059669;  --st-success-bg: rgba(16,185,129,.10);  --st-success-bd: rgba(16,185,129,.20);
   --st-danger-fg:  #dc2626;  --st-danger-bg:  rgba(239,68,68,.10);   --st-danger-bd:  rgba(239,68,68,.20);
-  --st-warning-fg: #d97706;  --st-warning-bg: rgba(245,158,11,.10);  --st-warning-bd: rgba(245,158,11,.20);
+  /* Amber-800 keeps warning text readable on the light warning tint. */
+  --st-warning-fg: #92400e;  --st-warning-bg: rgba(245,158,11,.10);  --st-warning-bd: rgba(245,158,11,.20);
   --st-info-fg:    #2563eb;  --st-info-bg:    rgba(59,130,246,.10);  --st-info-bd:    rgba(59,130,246,.20);
   --st-neutral-fg: #52525b;  --st-neutral-bg: #f4f4f5;  --st-neutral-bd: #e4e4e7;
 
@@ -197,7 +199,7 @@
   --th-text-strong:    rgba(255,255,255,.85);
   --th-text-body:      rgba(255,255,255,.66);
   --th-text-secondary: rgba(255,255,255,.58);
-  --th-text-muted:     rgba(255,255,255,.50);
+  --th-text-muted:     rgba(255,255,255,.58);
   --th-text-label:     rgba(255,255,255,.50);
   --th-text-hint:      rgba(255,255,255,.36);
   --th-text-ghost:     rgba(255,255,255,.22);

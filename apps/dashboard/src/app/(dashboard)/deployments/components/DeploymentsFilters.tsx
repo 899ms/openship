@@ -40,7 +40,17 @@ export const DeploymentsFilters: React.FC<DeploymentsFiltersProps> = React.memo(
   const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    if (debounceTimeout.current) clearTimeout(debounceTimeout.current);
     setLocalSearchQuery(searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const cancelSearch = () => {
+      if (debounceTimeout.current) clearTimeout(debounceTimeout.current);
+      setLocalSearchQuery(searchQuery);
+    };
+    window.addEventListener("popstate", cancelSearch);
+    return () => window.removeEventListener("popstate", cancelSearch);
   }, [searchQuery]);
 
   const handleSearchChange = (value: string) => {
@@ -83,7 +93,7 @@ export const DeploymentsFilters: React.FC<DeploymentsFiltersProps> = React.memo(
           Chips scroll horizontally instead of wrapping - on a narrow screen
           wrapping made the pill row jump to two ragged lines; a single
           scrollable row keeps the control's height constant. */}
-      <div className="max-w-full shrink-0 overflow-x-auto rounded-xl bg-muted/35 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="max-w-full shrink-0 overflow-x-auto rounded-xl bg-muted/35 p-1 scrollbar-hide">
         <div className="inline-flex items-center gap-1">
           {FILTERS.map((f) => (
             <button

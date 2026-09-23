@@ -1447,8 +1447,8 @@ export class RestoreOrchestrator {
    * `runtime` is returned so the CALLER can release it: the BackupExecutor wraps
    * it and shells into the target for the whole restore, and on a remote server it
    * carries a Docker-over-SSH loopback bridge that only `dispose()` closes. Both
-   * call sites hand it to `disposeRuntime` when they're done (the mail branch's
-   * bare runtime has nothing to release — a deliberate no-op).
+   * call sites hand it to `disposeRuntime` when they're done, including the mail
+   * branch's bare runtime, which borrows a pooled SSH connection.
    */
   private async resolveTarget(
     restore: BackupRestore,
@@ -1466,7 +1466,7 @@ export class RestoreOrchestrator {
         throw new Error("Mail restore has no target mail server");
       }
       const built = await this.buildMailTarget(targetMailServerId, destinationRow.organizationId);
-      return { executor: built.executor, serviceHandle: built.handle, runtime: null };
+      return { executor: built.executor, serviceHandle: built.handle, runtime: built.runtime };
     }
 
     if (!sourceRun.serviceId) throw new Error("Source run has no serviceId");
@@ -1506,7 +1506,7 @@ export class RestoreOrchestrator {
   private async buildMailTarget(
     mailServerId: string,
     organizationId: string,
-  ): Promise<{ executor: BackupExecutor; handle: ServiceHandle }> {
+  ): Promise<{ executor: BackupExecutor; handle: ServiceHandle; runtime: RuntimeAdapter }> {
     const mailRow = await repos.mailServer.get(mailServerId);
     if (!mailRow) throw new Error(`Target mail server ${mailServerId} not found`);
     const domain = mailRow.domain ?? "mail";
@@ -1531,7 +1531,7 @@ export class RestoreOrchestrator {
       projectSlug: slug,
       namespaceVolumes: false,
     };
-    return { executor, handle };
+    return { executor, handle, runtime: targetPlatform.runtime };
   }
 
   private async activeDeploymentMeta(projectId: string): Promise<Record<string, unknown>> {

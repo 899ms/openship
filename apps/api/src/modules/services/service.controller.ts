@@ -199,6 +199,7 @@ export async function runtimeLogs(c: Context) {
     c,
     operations().runtimeLogs(operationContext(c), param(c, "id"), param(c, "serviceId"), {
       tail: c.req.query("tail") ? Number(c.req.query("tail")) : undefined,
+      deploymentId: c.req.query("deploymentId"),
     }),
   );
   return c.json({ data });
@@ -221,7 +222,10 @@ export async function runtimeLogStream(c: Context) {
   const ctx = operationContext(c);
   const projectId = param(c, "id");
   const serviceId = param(c, "serviceId");
-  const input = { tail: c.req.query("tail") ? Number(c.req.query("tail")) : undefined };
+  const input = {
+    tail: c.req.query("tail") ? Number(c.req.query("tail")) : undefined,
+    deploymentId: c.req.query("deploymentId"),
+  };
   return streamSSE(c, async (stream) => {
     const abort = new AbortController();
     stream.onAbort(() => abort.abort());

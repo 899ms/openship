@@ -165,6 +165,7 @@ describe("post-backup retention (#817)", () => {
   it("does not prune when a terminal cancellation wins over this worker's success", async () => {
     const { policy, run } = await setup(3);
     for (let i = 0; i < 3; i++) await run();
+    const previousObjects = [...storage.objects.keys()];
     await db
       .update(schema.backupPolicy)
       .set({ retainCount: 1 })
@@ -177,8 +178,13 @@ describe("post-backup retention (#817)", () => {
           and(eq(schema.backupRun.policyId, policy.id), eq(schema.backupRun.status, "verifying")),
         );
     };
-    expect((await run()).status).toBe("cancelled");
-    expect(storage.deleted).toEqual([]);
+    const cancelled = await run();
+    expect(cancelled.status).toBe("cancelled");
+    // Reclaim only this cancelled run's uploads. No older restore point may
+    // be pruned, even after the policy was tightened while capture was running.
+    expect(storage.deleted).toHaveLength(2);
+    expect(storage.deleted.every(key => key.includes(`/${cancelled.id}/`))).toBe(true);
+    expect([...storage.objects.keys()]).toEqual(previousObjects);
   });
 
   it("keeps protected copies and applies retention independently to fan-out services", async () => {

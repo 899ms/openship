@@ -57,6 +57,7 @@ vi.mock("@repo/platform/engine/lib/box-org", async (original) => ({
 
 vi.mock("@repo/platform/engine/lib/ssh-manager", () => ({
   sshManager: {
+    retainExecutor: () => () => {},
     acquire: async () => ({
       readFile: async (path: string) => {
         if (path === "/etc/machine-id") return "0123456789abcdef0123456789abcdef\n";

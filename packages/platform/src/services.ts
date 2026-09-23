@@ -7,6 +7,7 @@ import {
   ServiceResourceSchemas,
   parseInput,
   type ServiceOperations,
+  type RuntimeLogsInput,
 } from "@repo/contracts";
 import type { Authorization } from "./authorization";
 import type { ExecutionContext } from "./context";
@@ -28,7 +29,7 @@ export interface ServiceDependencies {
     ctx: ExecutionContext,
     projectId: string,
     serviceId: string,
-    input: { tail?: number },
+    input: RuntimeLogsInput,
   ): EventSubscription;
 }
 export interface PlatformServiceOperations

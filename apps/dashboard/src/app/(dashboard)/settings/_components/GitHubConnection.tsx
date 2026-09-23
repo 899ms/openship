@@ -599,7 +599,7 @@ function CredentialProblem(props: {
             {t.settings.github.ghCli.recheck}
           </button>
           {checked && (
-            <span className="text-xs text-muted-foreground/70">
+            <span className="text-xs text-muted-foreground">
               {interpolate(t.settings.github.credentialCheckedAt, { time: checked })}
             </span>
           )}
@@ -674,7 +674,7 @@ function ActiveIdentity(props: {
             self-hosted → give each server its own credential (no relay there) */}
       {forwardEnabled === false && onManageForward && (
         <p className="flex items-start gap-2 px-1 text-xs leading-relaxed text-muted-foreground">
-          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/70" />
+          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <span>
             {t.settings.github.forwardOffHint}{" "}
             <button
@@ -689,7 +689,7 @@ function ActiveIdentity(props: {
       )}
       {remoteNeedsOwnCredential && (
         <p className="flex items-start gap-2 px-1 text-xs leading-relaxed text-muted-foreground">
-          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/70" />
+          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <span>{t.settings.github.remoteCredentialHint}</span>
         </p>
       )}
@@ -977,7 +977,7 @@ function TokenForm(props: { message: string; hint?: string; onSaved: () => void 
         </button>
       </div>
       {error && <p className="text-xs text-danger leading-relaxed">{error}</p>}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground/70">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <a
           href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=Openship"
           target="_blank"

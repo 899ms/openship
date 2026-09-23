@@ -3,7 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardProviders } from "@/app/(dashboard)/providers";
-import { CreateDestinationModal } from "@/app/(dashboard)/backups/_components/CreateDestinationModal";
+import { CreateDestinationModal } from "@/components/backup/CreateDestinationModal";
 import { I18nProvider } from "@/components/i18n-provider";
 import { ModalProvider } from "@/context/ModalContext";
 import { baseDictionary } from "@/i18n";

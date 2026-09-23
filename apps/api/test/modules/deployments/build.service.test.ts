@@ -326,6 +326,23 @@ function releaseSnapshot(
 }
 
 describe("buildConfigSnapshot", () => {
+  it.each(["web", "worker"])("keeps the full Ruby builder image for a %s runtime", (workloadType) => {
+    const snapshot = buildConfigSnapshot(baseProject({
+      framework: "rails", packageManager: "bundler", buildImage: "ruby:3.4.1-alpine",
+      workloadType, hasServer: workloadType === "web",
+    }) as never);
+    expect(snapshot.buildImage).toBe("ruby:3.4.1-alpine");
+    expect(snapshot.runtimeImage).toBe(snapshot.buildImage);
+  });
+  it("uses the static runtime for explicitly static Ruby builds", () => {
+    const snapshot = buildConfigSnapshot(baseProject({
+      framework: "rails", packageManager: "bundler", buildImage: "ruby:3.4.1-slim",
+      workloadType: "static", hasServer: false,
+    }) as never);
+    expect(snapshot.buildImage).toBe("ruby:3.4.1-slim");
+    expect(snapshot.runtimeImage).toBe("ubuntu:22.04");
+  });
+
   it("clones git snapshots instead of packaging their saved checkout path (#748)", () => {
     const snapshot = buildConfigSnapshot(
       baseProject({ gitProvider: "github", gitUrl: "https://github.com/acme/app.git" }) as never,
