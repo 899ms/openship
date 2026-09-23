@@ -84,6 +84,81 @@ export function renderMessage(delivery: NotificationDelivery): RenderedMessage {
   };
 }
 
+/** Build rich HTML for an email notification, separating metadata and raw logs. */
+export function renderEmailHtml(delivery: NotificationDelivery): string {
+  const { title } = renderMessage(delivery);
+  const cat = findCategory(delivery.category);
+  const payload = (delivery.payload ?? {}) as Record<string, unknown>;
+
+  const own =
+    typeof payload.eventType === "string" ? headlineForEventType(payload.eventType) : undefined;
+  const description = own?.description ?? cat?.description;
+
+  const metaRows: Array<{ label: string; value: string; isUrl?: boolean }> = [];
+  if (payload.branch) metaRows.push({ label: "Branch", value: String(payload.branch) });
+  if (payload.commitSha) {
+    const sha = String(payload.commitSha).slice(0, 8);
+    metaRows.push({ label: "Commit", value: sha });
+  }
+  if (payload.url) metaRows.push({ label: "URL", value: String(payload.url), isUrl: true });
+  if (payload.durationMs) {
+    metaRows.push({ label: "Duration", value: `${Math.round(Number(payload.durationMs) / 1000)}s` });
+  }
+  const resourceId = payload.resourceId;
+  if (resourceId) {
+    const resourceType = payload.resourceType ?? "resource";
+    metaRows.push({ label: "Resource", value: `${resourceType} (${resourceId})` });
+  }
+
+  const parts: string[] = [];
+
+  // Header banner / title
+  parts.push(
+    `<div style="margin-bottom:16px;">` +
+      `<h2 style="margin:0 0 8px;font-size:18px;font-weight:600;color:#111;">${escapeHtml(title)}</h2>` +
+      (description ? `<p style="margin:0 0 8px;color:#4b5563;font-size:14px;line-height:1.5;">${escapeHtml(description)}</p>` : "") +
+      (payload.message ? `<p style="margin:0;font-size:15px;font-weight:500;color:#1f2937;line-height:1.5;">${escapeHtml(String(payload.message))}</p>` : "") +
+    `</div>`
+  );
+
+  // Metadata table
+  if (metaRows.length > 0) {
+    const rowsHtml = metaRows
+      .map((row) => {
+        const val = row.isUrl
+          ? `<a href="${escapeHtml(row.value)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(row.value)}</a>`
+          : escapeHtml(row.value);
+        return `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;font-size:13px;white-space:nowrap;vertical-align:top;">${escapeHtml(row.label)}:</td><td style="padding:4px 0;color:#111827;font-size:13px;word-break:break-all;">${val}</td></tr>`;
+      })
+      .join("");
+    parts.push(
+      `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0;border-collapse:collapse;">${rowsHtml}</table>`
+    );
+  }
+
+  // Error / log excerpt
+  if (payload.errorMessage) {
+    parts.push(
+      `<div style="margin-top:16px;">` +
+        `<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Error / Logs:</div>` +
+        `<pre style="margin:0;padding:12px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:12px;line-height:1.45;color:#1f2937;overflow-x:auto;white-space:pre-wrap;word-break:break-all;">${escapeHtml(String(payload.errorMessage))}</pre>` +
+      `</div>`
+    );
+  }
+
+  return (
+    `<!DOCTYPE html>` +
+    `<html lang="en">` +
+    `<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /></head>` +
+    `<body style="margin:0;padding:20px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111;">` +
+      `<div style="max-width:600px;margin:0 auto;">` +
+        parts.join("") +
+      `</div>` +
+    `</body>` +
+    `</html>`
+  );
+}
+
 /* ─── Chat-webhook payload builders ───────────────────────────────────────── */
 
 // Slack Block Kit caps a `section` text object at 3000 characters and a
@@ -191,11 +266,12 @@ async function sendEmail(
   }
 
   const { title, body } = renderMessage(delivery);
+  const html = renderEmailHtml(delivery);
   const delivered = await sendMail({
     to: config.address,
     subject: `[Openship] ${title}`,
     text: body,
-    html: `<pre style="font-family:system-ui,sans-serif;font-size:14px">${escapeHtml(body)}</pre>`,
+    html,
   });
   // THROW when nothing could carry it. `sendMail` only warns on an empty transport
   // chain, so ignoring its result meant this worker returned normally and the delivery

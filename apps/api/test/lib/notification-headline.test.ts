@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import type { NotificationDelivery } from "@repo/db";
 
-import { renderMessage } from "../../src/lib/notification-workers";
+import { renderEmailHtml, renderMessage } from "../../src/lib/notification-workers";
 
 /** The two fields renderMessage reads. The rest of the row is irrelevant here. */
 const delivery = (category: string, payload: Record<string, unknown>) =>
@@ -58,5 +58,28 @@ describe("delivered headline vs the category it was subscribed through", () => {
     // eventType has to fall back to the category, not render "undefined".
     const msg = renderMessage(delivery("service.recovered", { message: "back up" }));
     expect(msg.title).toBe("App recovered");
+  });
+});
+
+describe("renderEmailHtml", () => {
+  it("renders metadata and puts logs in a monospace pre block", () => {
+    const html = renderEmailHtml(
+      delivery("service.unhealthy", {
+        eventType: "service.unhealthy",
+        message: '"TimeTracker / app" is unhealthy — its healthcheck reports unhealthy.',
+        url: "https://rechenkaiser.opsh.io/projects/proj_123/health",
+        errorMessage: '127.0.0.1 - - [23/Sep/2026] "GET /_health" 429\nratelimit exceeded',
+        resourceId: "proj_123",
+        resourceType: "project",
+      }),
+    );
+
+    expect(html).toContain("App unhealthy");
+    expect(html).toContain("TimeTracker / app");
+    expect(html).toContain("https://rechenkaiser.opsh.io/projects/proj_123/health");
+    expect(html).toContain("<pre");
+    expect(html).toContain("ui-monospace");
+    expect(html).toContain("ratelimit exceeded");
+    expect(html).toContain("Error / Logs:");
   });
 });
