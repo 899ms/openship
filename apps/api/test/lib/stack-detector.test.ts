@@ -825,6 +825,18 @@ describe("getStartCommand", () => {
 // ─── Port detection ──────────────────────────────────────────────────────────
 
 describe("detectStack - port detection", () => {
+  it.each([
+    "PORT=4010 next start",
+    "cross-env NODE_ENV=production PORT=4010 next start",
+    "set PORT=4010 && next start",
+  ])("routes to the production script port from %s", (start) => {
+    const result = detectStack(files("package.json", "next.config.js"), {
+      dependencies: { next: "^15.0.0" },
+      scripts: { start, dev: "next dev --port 3001" },
+    });
+    expect(result.port).toBe(4010);
+  });
+
   it("falls back to STACKS[stack].defaultPort when no explicit port", () => {
     const result = detectStack(files("package.json", "next.config.js"), {
       dependencies: { next: "^15.0.0" },
@@ -1192,13 +1204,12 @@ describe("detectStack - smart port detection scenarios", () => {
     expect(result.port).toBe(3000);
   });
 
-  it("ignores single-digit port matches (regex requires 2-5 digits)", () => {
+  it("accepts a declared single-digit TCP port", () => {
     const result = detectStack(files("package.json"), {
       dependencies: { express: "^5.0.0" },
-      // Port 5 is < 10, regex requires \d{2,5}, so it's ignored.
       scripts: { start: "node server.js -p 5" },
     });
-    expect(result.port).toBe(3000);
+    expect(result.port).toBe(5);
   });
 
   it("Next.js dev with -p shorthand resolves correctly", () => {
