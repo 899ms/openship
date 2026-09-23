@@ -19,7 +19,14 @@ import type { ImportedSite, ProxyScanResult } from "../../types";
 import { EDGE_HOST_PATHS, OPENRESTY_DEFAULT_PATHS } from "../../../infra/openresty-lua";
 import { containerCommand } from "../../edge-container-executor";
 import { detectEdgeContainer, resolveOurEdgeContainer } from "../detect";
-import { collapseByHost, extractBlocks, stripComments, tryExec } from "./parse-utils";
+import {
+  collapseByHost,
+  extractBlocks,
+  firstDirective,
+  locationBlocks,
+  stripComments,
+  tryExec,
+} from "./parse-utils";
 
 /**
  * The fully-resolved config dump from the first of `bins` that yields one. `-T`
@@ -77,11 +84,6 @@ async function loadNginxConfig(executor: CommandExecutor): Promise<string> {
     "cat /etc/nginx/nginx.conf /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf 2>/dev/null",
   );
   return cat ?? "";
-}
-
-function firstDirective(body: string, name: string): string | undefined {
-  const m = body.match(new RegExp(`(?:^|[;{\\s])${name}\\s+([^;]+);`));
-  return m?.[1]?.trim();
 }
 
 /** Parse `upstream <name> { server <host:port>; ... }` → every declared target. */
@@ -210,31 +212,6 @@ function parseStrictEdgeConfig(raw: string): ProxyScanResult & {
     ...parseNginxConfig(raw),
     loopbackUpstreamPorts: strictLoopbackUpstreamPorts(raw),
   };
-}
-
-/**
- * Every `location <path> { … }` in a server block with its body, in source order.
- * Balanced-brace matched so a nested `if {}` / `types {}` inside a location doesn't
- * truncate it.
- */
-function locationBlocks(serverBody: string): { path: string; body: string }[] {
-  const out: { path: string; body: string }[] = [];
-  const re = /(?:^|[\s;}])location\s+([^{]+?)\s*\{/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(serverBody)) !== null) {
-    const path = m[1].trim();
-    const openIdx = m.index + m[0].length - 1; // the `{`
-    let depth = 1;
-    let i = openIdx + 1;
-    for (; i < serverBody.length && depth > 0; i++) {
-      if (serverBody[i] === "{") depth++;
-      else if (serverBody[i] === "}") depth--;
-    }
-    if (depth !== 0) break; // unbalanced — stop
-    out.push({ path, body: serverBody.slice(openIdx + 1, i - 1) });
-    re.lastIndex = i;
-  }
-  return out;
 }
 
 /**
