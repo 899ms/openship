@@ -73,6 +73,7 @@ export function createRemoteServiceOperations(http: HttpClient): ServiceOperatio
       const input = parseInput(RuntimeLogsInputSchema, command);
       const url = http.url(`${service(projectId, id)}/logs/stream`);
       if (input.tail !== undefined) url.searchParams.set("tail", String(input.tail));
+      if (input.deploymentId !== undefined) url.searchParams.set("deploymentId", input.deploymentId);
       yield* http.events(url.href, { signal: options.signal });
     },
   } satisfies ServiceOperations);

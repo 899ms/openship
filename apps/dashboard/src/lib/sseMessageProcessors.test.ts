@@ -810,7 +810,7 @@ describe("createLogMessageProcessor", () => {
         expect(onContainerExit).toHaveBeenCalledWith(137, "oom killed");
       });
 
-      it("defaults the exit message and skips a zero/missing exit code", () => {
+      it("defaults the exit message and reports a clean stream end", () => {
         const onContainerExit = vi.fn();
         const processor = createLogMessageProcessor({ onContainerExit });
 
@@ -820,7 +820,8 @@ describe("createLogMessageProcessor", () => {
         onContainerExit.mockClear();
         processor.handleMessage({ type: "end", exitCode: 0 } as LogMessage, makeContext());
         processor.handleMessage({ type: "end" } as LogMessage, makeContext());
-        expect(onContainerExit).not.toHaveBeenCalled();
+        expect(onContainerExit).toHaveBeenCalledTimes(2);
+        expect(onContainerExit).toHaveBeenLastCalledWith(0, "Log stream ended");
       });
     });
 

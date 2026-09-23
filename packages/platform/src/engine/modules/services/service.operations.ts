@@ -1,4 +1,4 @@
-import { AppError, NotFoundError } from "@repo/core";
+import { AppError, NotFoundError, safeErrorMessage } from "@repo/core";
 import { OperationError } from "@repo/contracts";
 import { repos } from "@repo/db";
 import type { ServiceDependencies } from "../../../services";
@@ -198,7 +198,7 @@ export const serviceDependencies: ServiceDependencies = {
       return result;
     },
     runtimeLogs: (ctx, projectId, id, input) =>
-      run(() => service.getServiceRuntimeLogs(ctx, projectId, id, input?.tail)),
+      run(() => service.getServiceRuntimeLogs(ctx, projectId, id, input?.tail, input?.deploymentId)),
     async exec(ctx, projectId, id, input) {
       const command = input.command.trim();
       if (!command) throw new OperationError("command required", 400, "COMMAND_REQUIRED");
@@ -242,7 +242,14 @@ export const serviceDependencies: ServiceDependencies = {
             }),
           );
         },
-        input,
+        {
+          ...input,
+          onEnd: (error) => {
+            write("end", JSON.stringify(error
+              ? { error: safeErrorMessage(error) }
+              : { message: "Log stream ended" }));
+          },
+        },
       ),
     );
     if (stream.serverId) sshManager.retain(stream.serverId);
