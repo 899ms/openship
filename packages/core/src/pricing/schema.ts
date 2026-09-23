@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod";
 import { WORKLOAD_TYPES } from "../deployment-class";
 import { RESOURCE_TIER_ORDER } from "../resources";
 
