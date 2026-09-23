@@ -15,6 +15,7 @@ import {
 import EmptyState from "@/components/overview/EmptyState";
 import { ProjectIllustration } from "@/components/overview/ProjectIllustration";
 import { projectsApi } from "@/lib/api";
+import { updatesApi } from "@/lib/api/updates";
 import { useRouter } from "next/navigation";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import { Plus, Search, Server } from "lucide-react";
@@ -27,6 +28,7 @@ const VIEW_KEY = "openship-projects-view";
 export default function ProjectsPage() {
   const { t } = useI18n();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [updatesBehind, setUpdatesBehind] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>({ kind: "all" });
   const [isLoading, setIsLoading] = useState(true);
@@ -65,6 +67,9 @@ export default function ProjectsPage() {
       }
     };
     fetchProjects();
+    updatesApi.list(true)
+      .then(response => setUpdatesBehind(new Set(response.data.map(update => update.projectId))))
+      .catch(() => {});
     return () => { isLoadingRef.current = false; };
   }, []);
 
@@ -77,8 +82,6 @@ export default function ProjectsPage() {
   const hasServers = projects.some((p) => p.deployTarget === "server");
 
   const filteredProjects = projects.filter((p) => {
-    // Apps (catalog-installed: Convex, webmail, …) live under the Apps tab.
-    if (p.isApp) return false;
     if (!projectMatchesFilter(p, filter)) return false;
     const q = searchQuery.toLowerCase();
     return (
@@ -167,13 +170,13 @@ export default function ProjectsPage() {
                   view === "grid" ? (
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
                       {filteredProjects.map((project) => (
-                        <ProjectGridCard key={project.id} project={project} />
+                        <ProjectGridCard key={project.id} project={project} preferAppLogo updateAvailable={updatesBehind.has(project.id)} />
                       ))}
                     </div>
                   ) : (
                     <div className="bg-card rounded-2xl border border-border/50 divide-y divide-border/50">
                       {filteredProjects.map((project) => (
-                        <ProjectCard key={project.id} project={project} />
+                        <ProjectCard key={project.id} project={project} preferAppLogo updateAvailable={updatesBehind.has(project.id)} onChanged={() => setProjects(current => current.filter(row => row.id !== project.id))} />
                       ))}
                     </div>
                   )
