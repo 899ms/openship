@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { copyReleaseTransferScripts, START_TS } from "../../scripts/build-release";
+import { copyReleaseTransferScripts, writeReleaseRootPackage, START_TS } from "../../scripts/build-release";
 
 const exec = promisify(execFile);
 let directory: string;
@@ -49,6 +49,18 @@ async function run(relative: string, args: string[] = []) {
 }
 
 describe("source release transfer entry points (#869)", () => {
+  it("ships dependency patches with the manifest that installs the source release", async () => {
+    await writeReleaseRootPackage(directory, "0.0.0-test");
+    const repo = resolve(import.meta.dirname, "../../../..");
+    const source = JSON.parse(await readFile(join(repo, "package.json"), "utf8"));
+    const shipped = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
+    expect(shipped.version).toBe("0.0.0-test");
+    expect(shipped.patchedDependencies).toEqual(source.patchedDependencies);
+    for (const path of Object.values(source.patchedDependencies ?? {}) as string[]) {
+      expect(await readFile(join(directory, path), "utf8")).toBe(await readFile(join(repo, path), "utf8"));
+    }
+  });
+
   it("runs packaged dump and restore against their own PGlite package despite stale CLI assets", async () => {
     const output = join(directory, "dump.json");
     const dumped = await run("packages/db/scripts/dump.ts", ["--out", output]);

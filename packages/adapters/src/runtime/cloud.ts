@@ -2526,9 +2526,9 @@ fi`;
     };
   }
 
-  async getRuntimeLogs(containerId: string, tail?: number): Promise<LogEntry[]> {
+  async getRuntimeLogs(containerId: string, tail?: number, signal?: AbortSignal): Promise<LogEntry[]> {
     try {
-      const result = await this.ws(containerId).workloads.logs("app");
+      const result = await this.ws(containerId).workloads.logs("app", { signal });
       const raw = result as Record<string, unknown>;
 
       // Oblien returns { logs: "<big string with newlines>" }
@@ -2582,12 +2582,13 @@ fi`;
           .filter((e) => e.message),
         tail,
       );
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error;
       // Workload may not exist yet - fall back to workspace cmd logs
       const result = await this.ws(containerId).logs.get({
         source: "cmd",
         tail_lines: tail ?? 100,
-      });
+      }, { signal });
 
       const lines = (result as Record<string, unknown>).logs;
       if (!Array.isArray(lines)) return [];
@@ -2614,7 +2615,8 @@ fi`;
     onLog: LogCallback,
     opts?: RuntimeLogStreamOptions,
   ): Promise<() => void> {
-    let cancelled = false;
+    const controller = new AbortController();
+    const { signal } = controller;
 
     const emitText = (text: string, level: LogEntry["level"], timestamp?: string) => {
       if (!text) return; // skip empty entries
@@ -2628,9 +2630,9 @@ fi`;
         const replayTail = opts?.tail ?? 100;
         if (replayTail > 0) {
           try {
-            const history = await this.getRuntimeLogs(containerId, replayTail);
+            const history = await this.getRuntimeLogs(containerId, replayTail, signal);
             for (const entry of history) {
-              if (cancelled) return;
+              if (signal.aborted) return;
               if (!entry.message) continue;
               const rawData = entry.rawData ?? Buffer.from(entry.message).toString("base64");
               onLog({ ...entry, rawData });
@@ -2640,46 +2642,45 @@ fi`;
           }
         }
 
-        if (cancelled) return;
+        if (signal.aborted) return;
 
         // 2. Follow new output from the workload process
         try {
-          const stream = this.ws(containerId).workloads.logsStream("app");
+          const stream = this.ws(containerId).workloads.logsStream("app", { signal });
 
           for await (const event of stream) {
-            if (cancelled) break;
+            if (signal.aborted) break;
             const ev = event as Record<string, unknown>;
             const text = (ev.message as string) ?? event.data ?? "";
             emitText(text, event.stream === "stderr" ? "warn" : "info", event.timestamp);
           }
         } catch {
           // Workload stream unavailable - fall back to workspace cmd logs
-          if (cancelled) return;
+          if (signal.aborted) return;
           try {
             const stream = this.ws(containerId).logs.streamCmd({
               tail_lines: opts?.tail ?? 100,
+              signal,
             });
 
             for await (const event of stream) {
-              if (cancelled) break;
+              if (signal.aborted) break;
               emitText(event.message, "info", event.timestamp);
             }
           } catch (error) {
-            if (!cancelled) throw error;
+            if (!signal.aborted) throw error;
           }
         }
       } catch (error) {
-        if (!cancelled) throw error;
+        if (!signal.aborted) throw error;
       }
     };
 
     void run().then(
-      () => { if (!cancelled) opts?.onEnd?.(); },
-      (error) => { if (!cancelled) opts?.onEnd?.(new Error(safeErrorMessage(error))); },
+      () => { if (!signal.aborted) opts?.onEnd?.(); },
+      (error) => { if (!signal.aborted) opts?.onEnd?.(new Error(safeErrorMessage(error))); },
     );
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }
 
   async getUsage(containerId: string): Promise<ResourceUsage> {

@@ -273,6 +273,21 @@ function buildRootPackageJson(version: string): Record<string, unknown> {
   };
 }
 
+/** Source releases reinstall dependencies, so ship the same patches as the repo. */
+export async function writeReleaseRootPackage(dist: string, version: string): Promise<void> {
+  const source = await readJson(join(REPO_ROOT, "package.json"));
+  const patches = (source.patchedDependencies ?? {}) as Record<string, string>;
+  for (const path of Object.values(patches)) {
+    const target = join(dist, path);
+    await mkdir(dirname(target), { recursive: true });
+    await cp(join(REPO_ROOT, path), target);
+  }
+  await writeJson(join(dist, "package.json"), {
+    ...buildRootPackageJson(version),
+    ...(Object.keys(patches).length ? { patchedDependencies: patches } : {}),
+  });
+}
+
 /** Headless transfer commands use the same flat api/packages layout as start.ts. */
 export async function copyReleaseTransferScripts(dist: string): Promise<void> {
   for (const [source, target] of [
@@ -582,7 +597,7 @@ async function main(): Promise<void> {
   //    file: refs correctly.
   const version = await readRepoVersion();
   await step("writing release-dist/package.json + start.ts", async () => {
-    await writeJson(join(DIST, "package.json"), buildRootPackageJson(version));
+    await writeReleaseRootPackage(DIST, version);
     await writeFile(join(DIST, "start.ts"), START_TS);
   });
 
