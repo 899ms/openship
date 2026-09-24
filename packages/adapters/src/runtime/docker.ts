@@ -43,6 +43,7 @@ import type {
   DeploymentResult,
   LogEntry,
   LogCallback,
+  RuntimeLogStreamOptions,
   ContainerInfo,
   ContainerStatus,
   ResourceUsage,
@@ -4571,7 +4572,7 @@ export class DockerRuntime implements RuntimeAdapter {
   async streamRuntimeLogs(
     containerId: string,
     onLog: LogCallback,
-    opts?: { tail?: number },
+    opts?: RuntimeLogStreamOptions,
   ): Promise<() => void> {
     const container = this.docker.getContainer(containerId);
     const stream = (await container.logs({
@@ -4583,6 +4584,13 @@ export class DockerRuntime implements RuntimeAdapter {
     })) as unknown as NodeJS.ReadableStream;
 
     let destroyed = false;
+    let ended = false;
+
+    const notifyEnd = (error?: Error) => {
+      if (destroyed || ended) return;
+      ended = true;
+      opts?.onEnd?.(error);
+    };
 
     let buffer = "";
     stream.on("data", (chunk: Buffer) => {
@@ -4606,7 +4614,10 @@ export class DockerRuntime implements RuntimeAdapter {
         });
         buffer = "";
       }
+      notifyEnd();
     });
+    stream.on("error", notifyEnd);
+    stream.on("close", () => notifyEnd(new Error("Runtime log connection closed before completion")));
 
     return () => {
       if (!destroyed) {

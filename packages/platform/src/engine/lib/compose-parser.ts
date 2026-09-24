@@ -823,8 +823,10 @@ function collectUnsupportedMounts(
  */
 function parseComposeMemory(raw: unknown): number | undefined {
   if (typeof raw === "number") {
-    // Bare number = bytes (compose treats an unsuffixed value as bytes).
-    return raw > 0 ? Math.floor(raw / (1024 * 1024)) : undefined;
+    // Bare numbers are bytes. Match the string path: flooring a sub-MB
+    // value to zero would turn an invalid limit into explicit unlimited.
+    const mb = raw / (1024 * 1024);
+    return Number.isFinite(mb) && mb >= 1 ? Math.floor(mb) : undefined;
   }
   if (typeof raw !== "string") return undefined;
   const m = raw
@@ -842,7 +844,7 @@ function parseComposeMemory(raw: unknown): number | undefined {
     t: 1024 * 1024,
   };
   const mb = value * (factor[m[2]!] ?? 1);
-  return mb >= 1 ? Math.floor(mb) : undefined;
+  return Number.isFinite(mb) && mb >= 1 ? Math.floor(mb) : undefined;
 }
 
 /** Compose cpu string/number → fractional cores ("0.5", 2, "1.5"). */

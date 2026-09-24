@@ -191,7 +191,7 @@
         "@repo/core": "workspace:*",
         "dockerode": "^4.0.9",
         "ignore": "^7.0.5",
-        "oblien": "^2.4.0",
+        "oblien": "2.4.0",
         "ssh2": "^1.17.0",
         "tar-fs": "^2.1.4",
         "undici": "^7.29.1",
@@ -375,6 +375,9 @@
     "esbuild",
     "electron",
   ],
+  "patchedDependencies": {
+    "oblien@2.4.0": "packages/adapters/patches/oblien@2.4.0.patch",
+  },
   "packages": {
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 

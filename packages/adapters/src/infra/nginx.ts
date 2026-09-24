@@ -61,6 +61,7 @@ import {
 import { reloadBareOpenResty } from "./openresty-reload";
 import {
   safeErrorMessage,
+  isLoopbackHost,
   sanitizeProxySettings,
   resolveRedirectStatus,
   PROXY_DIRECTIVES,
@@ -75,6 +76,7 @@ import { sq } from "../system/local-shell";
 import type { RootChecked } from "../system/privilege";
 import { edgeDownExplanation } from "../system/edge-exec-error";
 import { BOOTSTRAP_CERT_SEGMENT, validateCertFor } from "../system/proxy/cert-material";
+import { firstDirective, locationBlocks, stripComments } from "../system/proxy/import/parse-utils";
 import {
   certbotLineageDirs,
   isCertbotLineageName,
@@ -2573,48 +2575,65 @@ ${serveLocation}
 
     // Prefer the persisted RouteConfig sidecar so the re-register keeps every
     // location (composite proxyLocations + webhookProxy), not just the primary.
+    let saved: RouteConfig | undefined;
     try {
       const state = await this._readFile(this.routeStatePath(slug));
-      const saved = JSON.parse(state) as RouteConfig;
-      await this.registerRoute({ ...saved, domain, tls: true });
-      return this.ensureIssued(domain, certonlyOut);
+      saved = JSON.parse(state) as RouteConfig;
     } catch {
       // No sidecar (legacy route or unreadable) - fall back to scraping the conf.
     }
+    // A write/reload failure must propagate, not trigger a lossy fallback or be
+    // reported as success just because certbot issued a readable certificate.
+    if (saved) {
+      await this.registerRoute({ ...saved, domain, tls: true });
+      return this.ensureIssued(domain, certonlyOut);
+    }
 
-    try {
-      const existing = await this._readFile(configPath);
-      const scraped = this.scrapeProxySettings(existing);
-      const targetMatch = existing.match(/proxy_pass\s+([^;]+);/);
-      if (targetMatch) {
+    // Certificate-only issuance is valid before a route exists. Once it does
+    // exist, a read or recovery failure must leave it intact and reach the caller.
+    if (!(await this._exists(configPath))) return this.ensureIssued(domain, certonlyOut);
+    const existing = await this._readFile(configPath);
+    const scraped = this.scrapeProxySettings(existing);
+    // The first proxy_pass in a vhost belongs to the ACME challenge. Use the
+    // shared balanced-block parser: even our own HTTPS upgrade nests an if in
+    // location /. Never fall back to scanning challenge or sibling locations.
+    for (const location of locationBlocks(stripComments(existing))) {
+      if (location.path !== "/") continue;
+      const targetUrl = firstDirective(location.body, "proxy_pass");
+      if (targetUrl) {
+        const upstream = new URL(targetUrl);
+        if (isLoopbackHost(upstream.hostname) && Number(upstream.port) === ACME_HTTP01_PORT) {
+          continue;
+        }
         await this.registerRoute({
           domain,
-          targetUrl: targetMatch[1],
+          targetUrl,
           tls: true,
           ...(scraped ? { proxy: scraped } : {}),
         });
         return this.ensureIssued(domain, certonlyOut);
       }
 
-      const rootMatch = existing.match(/root\s+([^;]+);/);
-      if (rootMatch) {
+      const staticRoot = firstDirective(location.body, "root");
+      if (staticRoot) {
         // Re-registering the root from OUR OWN existing vhost to add TLS. It passed
         // the floor when first written (possibly as adopted), so re-checking it here
         // would reject a legitimately imported site at cert time.
         await this.registerRoute({
           domain,
-          staticRoot: rootMatch[1],
+          staticRoot,
           staticRootAdopted: true,
           tls: true,
           ...(scraped ? { proxy: scraped } : {}),
         });
         return this.ensureIssued(domain, certonlyOut);
       }
-    } catch {
-      // Config doesn't exist - cert provisioned but no route yet
     }
 
-    return this.ensureIssued(domain, certonlyOut);
+    throw new Error(
+      `Cannot recover the existing route for ${domain} while enabling HTTPS. ` +
+        "Re-save the domain's application route and retry certificate provisioning.",
+    );
   }
 
   /**

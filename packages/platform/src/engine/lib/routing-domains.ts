@@ -662,7 +662,15 @@ export function createTrackedSslProvider(
     const domainRecord = domainByHostname.get(host);
     const wasVerified = !!domainRecord?.verified;
     return createProvisionLock(sslIssueLockKey(host)).run(async () => {
-      log?.(`Requesting SSL certificate for ${host}…`);
+      // Only the provider can establish that the certificate is missing. A
+      // stale database row or failed SSH read must not imply an HTTP-only site.
+      // This read serves progress reporting; it never changes persisted state
+      // or prevents the existing issuance/recovery path from running.
+      const onDisk = log ? await ssl.verifyCert(host).catch(() => null) : null;
+      const noCertYet = onDisk?.reason === "missing";
+      log?.(noCertYet
+        ? `No HTTPS certificate found for ${host}; the HTTP route is configured while certificate issuance is in progress.`
+        : `Requesting SSL certificate for ${host}…`);
       let result: SslResult;
       let errorReason: string | null = null;
       try {
@@ -727,7 +735,9 @@ export function createTrackedSslProvider(
             sslExpiresAt: new Date(result.expiresAt),
           });
         }
-        log?.(`SSL certificate active — ${host} is Live.`);
+        log?.(noCertYet
+          ? `SSL certificate issued for ${host}.`
+          : `SSL certificate active for ${host}.`);
         return result;
       }
 

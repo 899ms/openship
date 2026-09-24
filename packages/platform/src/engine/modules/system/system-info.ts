@@ -6,6 +6,7 @@ import { APP_VERSION } from "../../lib/app-version";
 import { getAuthMode } from "../../lib/auth-mode";
 import { resolveProductMode } from "../../lib/product-mode";
 import { resolveHostControlEnabled } from "../../lib/host-control";
+import { configuredAuthProviders } from "../../lib/auth-providers";
 
 /**
  * Best-effort friendly name for the local machine. On macOS with Bonjour
@@ -97,6 +98,7 @@ export async function getSystemInfo(): Promise<SystemInfo> {
     hostControlEnabled: await resolveHostControlEnabled(),
     version: APP_VERSION,
     authMode,
+    authProviders: authMode === "local" ? configuredAuthProviders() : [],
     productMode,
     teamMode,
     migrationTargetUrl,

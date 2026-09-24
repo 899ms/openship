@@ -28,7 +28,9 @@
 import { safeErrorMessage } from "@repo/core";
 import { repos } from "@repo/db";
 import type { EdgeTargetVerification } from "@repo/db";
-import { ensureTargetVerified, probeOwnToken, resolveRoutingFor } from "@repo/platform/engine/lib/edge-target-verify";
+import type { Platform } from "@repo/adapters";
+import { disposePlatform } from "../../lib/deployment-runtime";
+import { ensureTargetVerified, probeOwnToken, resolveRoutingPlatform } from "@repo/platform/engine/lib/edge-target-verify";
 
 export interface EdgeVerifySweepResult {
   targets: number;
@@ -68,28 +70,32 @@ export async function runEdgeVerifySweep(): Promise<EdgeVerifySweepResult> {
   // and building a platform runs a paths probe and can self-heal the edge under a
   // provision lock. Keyed by org too — the same server id could not appear under two
   // orgs, but the resolver takes both and caching on the pair keeps that honest.
-  const routingCache = new Map<string, Awaited<ReturnType<typeof resolveRoutingFor>>>();
+  const platformCache = new Map<string, Awaited<ReturnType<typeof resolveRoutingPlatform>>>();
   const routingFor = async (row: EdgeTargetVerification) => {
     const key = `${row.organizationId}:${row.serverId ?? "local"}`;
-    if (!routingCache.has(key)) {
-      routingCache.set(
+    if (!platformCache.has(key)) {
+      platformCache.set(
         key,
-        await resolveRoutingFor(row.organizationId, row.serverId ?? undefined),
+        await resolveRoutingPlatform(row.organizationId, row.serverId ?? undefined),
       );
     }
-    return routingCache.get(key) ?? null;
+    return platformCache.get(key)?.routing ?? null;
   };
 
-  for (const row of rows) {
-    try {
-      await sweepOne(row, await routingFor(row), result);
-    } catch (err) {
-      // One unreachable server must not stop the sweep for every other target.
-      result.failed++;
-      console.warn(
-        `[edge-verify-sweep] ${row.target}: ${safeErrorMessage(err)}`,
-      );
+  try {
+    for (const row of rows) {
+      try {
+        await sweepOne(row, await routingFor(row), result);
+      } catch (err) {
+        // One unreachable server must not stop the sweep for every other target.
+        result.failed++;
+        console.warn(
+          `[edge-verify-sweep] ${row.target}: ${safeErrorMessage(err)}`,
+        );
+      }
     }
+  } finally {
+    for (const platform of platformCache.values()) disposePlatform(platform);
   }
 
   if (result.notServing > 0) {
@@ -104,7 +110,7 @@ export async function runEdgeVerifySweep(): Promise<EdgeVerifySweepResult> {
 
 async function sweepOne(
   row: EdgeTargetVerification,
-  routing: Awaited<ReturnType<typeof resolveRoutingFor>>,
+  routing: Platform["routing"] | null,
   result: EdgeVerifySweepResult,
 ): Promise<void> {
   const expiresInMs = row.expiresAt ? row.expiresAt.getTime() - Date.now() : null;

@@ -780,7 +780,7 @@ const ProjectSettingsContent = () => {
                       {t.projects.delete.forceModalBody}
                     </p>
                     {reasons && (
-                      <p className="mt-2 text-xs text-muted-foreground/70">{reasons}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{reasons}</p>
                     )}
                   </div>
                 </div>
@@ -1021,7 +1021,8 @@ const ProjectSettingsContent = () => {
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-4">
+        {/* Keep environment controls from squeezing the heading on phones. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold text-foreground truncate">
               {tabs.find((tab) => tab.id === activeTabGroup)?.label || t.projects.detail.overviewFallback}

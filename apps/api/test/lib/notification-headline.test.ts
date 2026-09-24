@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import type { NotificationDelivery } from "@repo/db";
 
-import { renderMessage } from "@repo/platform/engine/lib/notification-workers";
+import { renderEmailHtml, renderMessage } from "@repo/platform/engine/lib/notification-workers";
 
 /** The two fields renderMessage reads. The rest of the row is irrelevant here. */
 const delivery = (category: string, payload: Record<string, unknown>) =>
@@ -152,5 +152,167 @@ describe("delivered headline vs the category it was subscribed through", () => {
     expect(msg.body).toContain("Exit Code: 0");
     expect(msg.body).toContain("Duration: 1s");
     expect(msg.body).toContain("Resource: job (custom:t6GN81ItRPW_qAkX)");
+  });
+});
+
+describe("renderEmailHtml", () => {
+  it("keeps every current notification detail and leaves the plaintext message unchanged", () => {
+    const notice = delivery("job.run.failed", {
+      eventType: "job_run.failed",
+      message: "The backup check failed.",
+      projectName: "Production",
+      serviceName: "postgres",
+      policyName: "Nightly",
+      destinationName: "Offsite",
+      jobName: "Backup check",
+      branch: "main",
+      commitSha: "123456789abcdef",
+      url: "https://example.com/jobs?run=1&view=logs",
+      exitCode: 0,
+      errorMessage: "Failed <check>\n  at worker:4",
+      durationMs: 0,
+      resourceType: "job",
+      resourceId: "job_1",
+      logExcerpt: "\n  last log line <end>  \n",
+    });
+    expect(renderMessage(notice).body).toBe(
+      [
+        "A scheduled or manual job run errored out. Includes the job + exit code.",
+        "The backup check failed.",
+        "Project: Production",
+        "Service: postgres",
+        "Policy: Nightly",
+        "Destination: Offsite",
+        "Job: Backup check",
+        "Branch: main",
+        "Commit: 12345678",
+        "URL: https://example.com/jobs?run=1&view=logs",
+        "Exit Code: 0",
+        "Error: Failed <check>\n  at worker:4",
+        "Duration: 0s",
+        "Resource: job (job_1)",
+        "Logs:\nlast log line <end>",
+      ].join("\n"),
+    );
+    const html = renderEmailHtml(notice);
+    for (const detail of [
+      "Production",
+      "postgres",
+      "Nightly",
+      "Offsite",
+      "Backup check",
+      "main",
+      "12345678",
+      "Exit Code:",
+      "Duration:",
+      "0s",
+      "job (job_1)",
+    ]) {
+      expect(html).toContain(detail);
+    }
+    expect(html).toContain('href="https://example.com/jobs?run=1&amp;view=logs"');
+    expect(html).toMatch(/<pre[^>]*>Failed &lt;check&gt;\n  at worker:4<\/pre>/);
+    expect(html).toMatch(/<pre[^>]*>last log line &lt;end&gt;<\/pre>/);
+    expect(html.indexOf("Resource:")).toBeLessThan(html.indexOf("<pre"));
+  });
+
+  it("preserves backup references and job labels when display names are missing", () => {
+    const html = renderEmailHtml(
+      delivery("backup.failed", {
+        policyId: "pol_1",
+        destinationId: "dst_1",
+        label: "Scheduled task",
+      }),
+    );
+    expect(html).toContain("pol_1");
+    expect(html).toContain("dst_1");
+    expect(html).toContain("Scheduled task");
+  });
+
+  it("renders log-only job output in its own block", () => {
+    const html = renderEmailHtml(
+      delivery("job.run.succeeded", { logExcerpt: "  everything passed\nnext line  " }),
+    );
+    expect(html).toMatch(/<pre[^>]*>everything passed\nnext line<\/pre>/);
+    expect(html).not.toContain("Error / Logs:");
+  });
+
+  it("escapes headings, metadata, messages and log contents", () => {
+    const html = renderEmailHtml(
+      delivery('<img src=x onerror="alert(1)">', {
+        message: "<script>alert('message')</script>",
+        projectName: '<svg onload="alert(1)">',
+        errorMessage: "</pre><script>alert('error')</script>",
+        logExcerpt: "<b>raw log & output</b>",
+      }),
+    );
+    expect(html).not.toMatch(/<script|<img|<svg/);
+    expect(html).toContain("&lt;img");
+    expect(html).toContain("&lt;svg");
+    expect(html).toContain("&lt;/pre&gt;&lt;script&gt;");
+    expect(html).toContain("&lt;b&gt;raw log &amp; output&lt;/b&gt;");
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "//example.com/path",
+    "not a URL",
+  ])("keeps an unsafe or invalid URL as text: %s", (url) => {
+    const html = renderEmailHtml(delivery("deploy.failed", { url }));
+    expect(html).not.toContain("<a ");
+    expect(html).toContain("URL:");
+  });
+
+  it.each(["http://192.0.2.1:3000/health", "https://example.com/health"])(
+    "links a valid application URL: %s",
+    (url) => {
+      expect(renderEmailHtml(delivery("service.recovered", { url }))).toContain(`href="${url}"`);
+    },
+  );
+
+  it("uses the recovery headline and description in every format", () => {
+    const notice = delivery("server.unreachable", {
+      eventType: "server.reachable",
+      message: "The server is back.",
+    });
+    const html = renderEmailHtml(notice);
+    expect(html).toContain(renderMessage(notice).title);
+    expect(html).toContain("The server is back.");
+    expect(html).not.toContain("Server unreachable");
+    expect(html).not.toContain("can't reach");
+  });
+
+  it("renders a queued notice with no payload without empty tables or log blocks", () => {
+    const notice = {
+      category: "service.recovered",
+      payload: null,
+    } as unknown as NotificationDelivery;
+    const html = renderEmailHtml(notice);
+    expect(html).toContain("App recovered");
+    expect(html).not.toContain("undefined");
+    expect(html).not.toContain("<pre");
+    expect(html).not.toContain("<table");
+  });
+
+  it("renders metadata and puts logs in a monospace pre block", () => {
+    const html = renderEmailHtml(
+      delivery("service.unhealthy", {
+        eventType: "service.unhealthy",
+        message: '"TimeTracker / app" is unhealthy — its healthcheck reports unhealthy.',
+        url: "https://rechenkaiser.opsh.io/projects/proj_123/health",
+        errorMessage: '127.0.0.1 - - [23/Sep/2026] "GET /_health" 429\nratelimit exceeded',
+        resourceId: "proj_123",
+        resourceType: "project",
+      }),
+    );
+
+    expect(html).toContain("App unhealthy");
+    expect(html).toContain("TimeTracker / app");
+    expect(html).toContain("https://rechenkaiser.opsh.io/projects/proj_123/health");
+    expect(html).toContain("<pre");
+    expect(html).toContain("ui-monospace");
+    expect(html).toContain("ratelimit exceeded");
+    expect(html).toContain("Error / Logs:");
   });
 });
