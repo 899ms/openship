@@ -38,7 +38,7 @@ const tone = {
 
 /** Fleet health reads a cached snapshot produced by the server-grouped watcher.
  * Polling this view is therefore O(rows returned), never O(Docker connections). */
-export function MonitoringHealth({ onViewIssues }: { onViewIssues: () => void }) {
+export function MonitoringHealth() {
   const { t } = useI18n();
   const { toast } = useToast();
   const [rows, setRows] = useState<WorkloadHealthRow[]>([]);
@@ -113,8 +113,8 @@ export function MonitoringHealth({ onViewIssues }: { onViewIssues: () => void })
       toast(
         "success",
         enabled
-          ? "Automatic monitoring enabled. The next scheduled check will refresh health and record confirmed issues."
-          : "Automatic monitoring paused. Existing incidents and the last snapshot are preserved.",
+          ? "Automatic monitoring enabled."
+          : "Automatic monitoring disabled.",
         "Container health",
       );
     } catch (err) {
@@ -207,6 +207,17 @@ export function MonitoringHealth({ onViewIssues }: { onViewIssues: () => void })
 
   return (
     <div className="space-y-4">
+      {!loading && watcher && watching !== null && (
+        <AutomaticMonitoringCard
+          watcher={watcher}
+          watching={watching}
+          busy={enabling}
+          disabled={scanning}
+          error={enableError}
+          onToggle={() => void toggleWatching()}
+        />
+      )}
+
       <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-card p-5 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className={`flex size-10 items-center justify-center rounded-xl ${partialCoverage ? "bg-warning-bg text-warning" : problems > 0 ? "bg-danger-bg text-danger" : rows.length > 0 ? "bg-success-bg text-success" : "bg-primary/10 text-primary"}`}>
@@ -238,18 +249,6 @@ export function MonitoringHealth({ onViewIssues }: { onViewIssues: () => void })
           )}
         </div>
       </div>
-
-      {!loading && watcher && watching !== null && (
-        <AutomaticMonitoringCard
-          watcher={watcher}
-          watching={watching}
-          busy={enabling}
-          disabled={scanning}
-          error={enableError}
-          onToggle={() => void toggleWatching()}
-          onViewIssues={onViewIssues}
-        />
-      )}
 
       {scanError && (
         <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger">

@@ -7,6 +7,8 @@ import { ProjectSettingsProvider, useProjectSettings } from "@/context/ProjectSe
 import { ProjectMobileTabs, ProjectSidebar } from "./ProjectSidebar";
 import { ProjectTabSections } from "./ProjectTabSections";
 
+const platform = vi.hoisted(() => ({ selfHosted: true }));
+
 vi.mock("@/lib/api", () => ({
   projectsApi: {},
   servicesApi: { list: async () => ({ services: [] }) },
@@ -16,7 +18,9 @@ vi.mock("@/hooks/useProjectEndpoints", () => ({
   PROJECT_INFO_NOT_FOUND: "missing",
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
-vi.mock("@/context/PlatformContext", () => ({ usePlatform: () => ({ isServerHost: true }) }));
+vi.mock("@/context/PlatformContext", () => ({
+  usePlatform: () => ({ isServerHost: platform.selfHosted, selfHosted: platform.selfHosted }),
+}));
 vi.mock("@/hooks/useLocalhostForward", () => ({
   useLocalhostForward: () => ({ canForward: false }),
 }));
@@ -45,7 +49,7 @@ function Navigation() {
   );
 }
 
-async function render(slug: string, deployTarget: "cloud" | "server" = "server") {
+async function render(slug: string, deployTarget: "cloud" | "server" | "local" = "server") {
   await act(async () =>
     root.render(
       <ProjectSettingsProvider
@@ -85,6 +89,7 @@ function expectSelected(group: string, section: string) {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  platform.selfHosted = true;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -97,6 +102,49 @@ afterEach(async () => {
 });
 
 describe("merged project navigation", () => {
+  it.each(["server", "local"] as const)(
+    "opens Health links under Monitoring and switches between both sections on %s",
+    async (deployTarget) => {
+      await render("health", deployTarget);
+      expectSelected("Monitoring", "health");
+      expect([...host.querySelectorAll("nav a")].map((link) => link.textContent)).toEqual([
+        "Monitoring", "Health",
+      ]);
+      for (const layout of ["desktop", "mobile"]) {
+        expect(host.querySelector(`[data-layout="${layout}"] a[href="/projects/project/health"]`)).toBeNull();
+      }
+
+      await act(async () => sectionLink("monitoring").click());
+      expectSelected("Monitoring", "monitoring");
+      expect(window.location.pathname).toBe("/projects/project/monitoring");
+      await act(async () => sectionLink("health").click());
+      expectSelected("Monitoring", "health");
+      expect(window.location.pathname).toBe("/projects/project/health");
+
+      await render("overview", deployTarget);
+      await render("health", deployTarget);
+      expectSelected("Monitoring", "health");
+    },
+  );
+
+  it.each([
+    { selfHosted: true, deployTarget: "cloud" as const },
+    { selfHosted: false, deployTarget: "cloud" as const },
+    { selfHosted: false, deployTarget: "server" as const },
+  ])("excludes local Health for $deployTarget projects with selfHosted=$selfHosted", async ({ selfHosted, deployTarget }) => {
+    platform.selfHosted = selfHosted;
+    await render("health", deployTarget);
+    expect(host.querySelector("output")?.textContent).toBe("overview");
+    await render("monitoring", deployTarget);
+    expect(host.querySelector("output")?.textContent).toBe("monitoring");
+    expect(host.querySelector("nav")).toBeNull();
+    expect(host.querySelector('a[href="/projects/project/health"]')).toBeNull();
+    for (const layout of ["desktop", "mobile"]) {
+      const selected = host.querySelector(`[data-layout="${layout}"] a[aria-current="page"]`);
+      expect(selected?.textContent).toBe("Monitoring");
+    }
+  });
+
   it.each(["server", "cloud"] as const)(
     "keeps bookmarked Webhooks accessible under Source & Triggers on %s",
     async (deployTarget) => {

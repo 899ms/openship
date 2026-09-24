@@ -22,7 +22,6 @@ import {
   ExternalLink,
   DatabaseBackup,
   Plus,
-  HeartPulse,
   MonitorSmartphone,
   Waypoints,
 } from "lucide-react";
@@ -37,7 +36,6 @@ const TAB_ICONS: Record<
   services: Layers,
   domains: Globe,
   deployments: Rocket,
-  health: HeartPulse,
   source: GitBranch,
   runtime: Wrench,
   settings: Wrench,
@@ -134,7 +132,7 @@ export const ProjectSidebar = () => {
               </div>
             )}
             <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
                 {t.projects.sidebar.project}
               </p>
               <div className="mt-2 flex items-center gap-2">
@@ -254,11 +252,7 @@ export const ProjectSidebar = () => {
                   e.preventDefault();
                   handleTabChange(tab.id);
                 }}
-                className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium transition-colors ${
-                  isActive
-                    ? "bg-foreground/[0.07] text-foreground"
-                    : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
-                }`}
+                className="th-nav-item w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium transition-colors"
               >
                 <Icon className="size-[17px] shrink-0" strokeWidth={1.7} />
                 {tab.label}
@@ -303,11 +297,7 @@ export const ProjectMobileTabs = () => {
                 e.preventDefault();
                 handleTabChange(tab.id);
               }}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium whitespace-nowrap transition-colors ${
-                isActive
-                  ? "bg-foreground/[0.07] text-foreground"
-                  : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
-              }`}
+              className="th-nav-item flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium whitespace-nowrap transition-colors"
             >
               <Icon className="size-4 shrink-0" strokeWidth={1.7} />
               {tab.label}

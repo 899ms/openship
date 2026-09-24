@@ -373,10 +373,10 @@ export const SYSTEM_JOB_DEFS: SystemJobDef[] = [
     // feature. Cheap by construction: one `docker ps -a` per server, and no DB
     // writes at all on a tick where nothing is wrong.
     defaultCron: "* * * * *",
-    // Desktop opts in to the same worker while Openship is running. Cloud
-    // workloads are excluded both here and by the scanner's target resolution.
+    // Enabled by default on supported installations. Desktop checks run while
+    // Openship is running; saved disable/schedule choices survive reconciliation.
+    // Cloud workloads are excluded here and by the scanner's target resolution.
     available: containerHealthSupported,
-    defaultEnabled: () => platform().target === "selfhosted",
     onDisabled: async () => {
       const { stopAllContainerEventWatchers } = await import("../monitoring/container-events");
       await stopAllContainerEventWatchers();

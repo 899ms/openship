@@ -29,6 +29,7 @@ import {
 import { InfraFleetCard } from "@/components/infra/InfraFleetCard";
 import type { ContainerApplyActive, ContainerApplyIntent } from "@/lib/api/system";
 import { MonitoringHealth } from "@/components/issues/MonitoringHealth";
+import { MonitoringNavigation, type MonitoringTab } from "@/components/issues/MonitoringNavigation";
 
 type SeverityFilter = "all" | IssueSeverity;
 
@@ -52,6 +53,8 @@ export function IssuesView() {
   const c = t.issues;
   const { selfHosted } = usePlatform();
   const { toast } = useToast();
+  const [tab, setTab] = useState<MonitoringTab>("open");
+  const showFleet = selfHosted && tab === "open";
   const infra = useInfraFleet(selfHosted);
   const [operation, setOperation] = useState<{
     id: string;
@@ -78,7 +81,6 @@ export function IssuesView() {
   // static "issue" row with no sign the work is already underway.
   useReattachActiveFix({ install: selfHosted }, presentRecoveredOperation);
 
-  const [tab, setTab] = useState<"open" | "health" | "resolved">("open");
   const [issues, setIssues] = useState<SystemIssue[]>([]);
   const [counts, setCounts] = useState<IssueCounts | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,10 +95,6 @@ export function IssuesView() {
   // daemons owned by this installation. Cloud workloads are observed by the
   // cloud platform, not by this local health endpoint, so do not expose a tab
   // that can only answer with the route's intentional local-only 404.
-  const tabs = selfHosted
-    ? (["open", "health", "resolved"] as const)
-    : (["open", "resolved"] as const);
-
   useEffect(() => {
     if (!selfHosted && tab === "health") setTab("open");
   }, [selfHosted, tab]);
@@ -266,8 +264,8 @@ export function IssuesView() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground/70">{c.subtitle}</p>
         </div>
-        {/* Re-scan runs the SCHEDULED checkers early; on cloud they don't exist. */}
-        {selfHosted && tab !== "health" && (
+        {/* Re-scan updates the current issue feed; Health owns its check control. */}
+        {showFleet && (
           <button
             type="button"
             onClick={handleRescan}
@@ -284,6 +282,8 @@ export function IssuesView() {
         )}
       </div>
 
+      <MonitoringNavigation value={tab} onChange={setTab} selfHosted={selfHosted} />
+
       {operation && (
         <section
           className="mb-6 rounded-2xl border border-border/50 bg-card"
@@ -298,25 +298,14 @@ export function IssuesView() {
         </section>
       )}
 
-      {/* Open / Resolved. Same geometry as the deployments status switch. */}
-      <div className="mb-4 inline-flex items-center gap-1 rounded-xl bg-muted/35 p-1">
-        {tabs.map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`inline-flex h-8 items-center rounded-lg px-3.5 text-[12px] font-medium transition-colors ${
-              tab === key
-                ? "border border-border/60 bg-card text-foreground"
-                : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
-            }`}
-          >
-            {c.tabs[key]}
-          </button>
-        ))}
-      </div>
-
-      {scan && <ScanProgress session={scan} />}
+      <section
+        role="tabpanel"
+        id={`monitoring-panel-${tab}`}
+        aria-labelledby={`monitoring-tab-${tab}`}
+        tabIndex={0}
+        className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+      {scan && tab === "open" && <ScanProgress session={scan} />}
 
       {/* The Resolved tab is honest about its coverage: only incidents have a lifecycle,
           so its silence is not a claim that nothing else ever broke. Sits above the
@@ -329,7 +318,7 @@ export function IssuesView() {
       )}
 
       {tab === "health" ? (
-        <MonitoringHealth onViewIssues={() => setTab("open")} />
+        <MonitoringHealth />
       ) : loading ? (
         // Two-column skeleton: the feed on the left, the summary rail on the right,
         // so the fold doesn't reflow when the real data lands.
@@ -370,7 +359,7 @@ export function IssuesView() {
             </div>
           </div>
         </div>
-      ) : issues.length === 0 && (infra.empty || !selfHosted) ? (
+      ) : issues.length === 0 && (!showFleet || infra.empty) ? (
         // Nothing at all for this tab: the empty state stands alone, full width and
         // centred, with no filters or summary rail to frame an absence.
         <EmptyIssues filtered={false} resolved={tab === "resolved"} />
@@ -451,7 +440,8 @@ export function IssuesView() {
 
           {/* ── RIGHT COLUMN — sticky summary ── */}
           <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
-            {selfHosted && !infra.empty && (
+            <IssueSummary issues={issues} tab={tab} />
+            {showFleet && !infra.empty && (
               <InfraFleetCard
                 counts={infra.counts}
                 scanning={infra.scanning}
@@ -463,10 +453,10 @@ export function IssuesView() {
                 onViewLogs={openApplyLog}
               />
             )}
-            <IssueSummary issues={issues} tab={tab} />
           </div>
         </div>
       )}
+      </section>
     </PageContainer>
   );
 }

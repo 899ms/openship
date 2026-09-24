@@ -375,14 +375,14 @@ describe("jobs HTTP — fix #2: cross-org write isolation", () => {
     expect(runner.recurring.has("services:health-watch")).toBe(false);
   });
 
-  it("keeps desktop monitoring opt-in and preserves enable/pause choices across reconciliation", async () => {
+  it("enables desktop monitoring by default and preserves disable choices across reconciliation", async () => {
     await initPlatform({ target: "desktop", runtime: "bare" });
     try {
       const { reconcileJobs } = await import("@repo/platform/engine/modules/jobs/job.service");
       const instanceAdmin = await seedOwner({ instanceAdmin: true });
       await reconcileJobs();
-      expect((await repos.job.findByKey("services:health-watch"))?.enabled).toBe(false);
-      expect(runner.recurring.has("services:health-watch")).toBe(false);
+      expect((await repos.job.findByKey("services:health-watch"))?.enabled).toBe(true);
+      expect(runner.recurring.has("services:health-watch")).toBe(true);
 
       expect((await req(app, "PATCH", "/services%3Ahealth-watch", {
         auth: instanceAdmin.auth, body: { enabled: true },

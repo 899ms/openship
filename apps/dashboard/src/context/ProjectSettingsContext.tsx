@@ -960,18 +960,28 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
 
   const tabs = useMemo<ProjectTab[]>(() => {
     const tl = t.projects.sidebar.tabs;
-    const all = [
+    const healthAvailable = selfHosted && projectData.deployTarget !== "cloud";
+    return [
       { id: "overview", label: tl.overview, icon: "setting-100-1658432731.png" },
       { id: "topology", label: tl.topology, icon: "layers.png" },
       { id: "services", label: tl.services, icon: "layers.png" },
       { id: "domains", label: tl.domains, icon: "server-59-1658435258.png" },
       { id: "deployments", label: tl.deployments, icon: "heart%20rate-118-1658433496.png" },
-      { id: "health", label: tl.health, icon: "heart%20rate-118-1658433496.png" },
       // Shown on cloud AND self-hosted, deliberately: both halves of the tab work
       // in both modes through adapters that already exist — resource usage via
       // RuntimeAdapter.getUsage (dockerode | Oblien metrics) and visitor geography
       // via the traffic-source resolver (OpenResty mgmt API | Oblien analytics).
-      { id: "monitoring", label: tl.monitoring, icon: "chart-1658432731.png" },
+      {
+        id: "monitoring",
+        label: tl.monitoring,
+        icon: "chart-1658432731.png",
+        // Incidents belong beside metrics. The health watch covers local/SSH
+        // workloads; cloud monitoring continues to use its existing adapters.
+        sections: healthAvailable ? [
+          { id: "monitoring", label: tl.monitoring },
+          { id: "health", label: tl.health },
+        ] : undefined,
+      },
       {
         id: "source",
         label: tl.sourceAndTriggers,
@@ -993,22 +1003,13 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
         ],
       },
     ];
-    const isCloud = projectData.deployTarget === "cloud";
-    return all.filter((tab) => {
-      // Configuration also owns shared project environment for service projects.
-      // Health is fed by the container health watch, so it needs BOTH
-      // halves to be true: this installation must support local/SSH monitoring,
-      // and the workload must be a container we can inspect. Cloud workloads
-      // are observed by the cloud platform.
-      if (tab.id === "health" && (!selfHosted || isCloud)) return false;
-      // Source & Triggers is available on cloud too. Webhook job actions and
-      // the self-hosted webhook-domain picker remain gated inside their section.
-      return true;
-    });
   }, [t, projectData.deployTarget, selfHosted]);
 
   const defaultTab = tabs[0].id;
-  const [activeTab, setActiveTab] = useState(resolveTab(slug?.[0]) || defaultTab);
+  const [activeTab, setActiveTab] = useState(() => {
+    const resolved = resolveTab(slug?.[0]) || defaultTab;
+    return findTabGroup(tabs, resolved) ? resolved : defaultTab;
+  });
   const activeTabGroup = findTabGroup(tabs, activeTab)?.id || defaultTab;
   const [pendingDomainAction, setPendingDomainAction] = useState<"add" | null>(null);
 

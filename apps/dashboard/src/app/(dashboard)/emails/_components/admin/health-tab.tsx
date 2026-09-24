@@ -570,7 +570,7 @@ function DaemonRow({
                 mean "mail still works without this". The difference is only whether the
                 banner grades it (GH-240). */}
             {component.severity !== "required" && (
-              <span className="text-[10px] uppercase tracking-wide font-medium text-muted-foreground border border-border/60 rounded px-1 py-px">
+              <span className="text-[10px] uppercase tracking-wide font-medium text-muted-foreground/70 border border-border/60 rounded px-1 py-px">
                 {h.optional}
               </span>
             )}
@@ -579,7 +579,7 @@ function DaemonRow({
             {component.description}
           </p>
           {component.activeSince && component.status === "active" && (
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-[11px] text-muted-foreground/70 mt-0.5">
               {interpolate(h.up, { time: timeAgo(new Date(component.activeSince).getTime(), h.time) })}
             </p>
           )}
@@ -835,7 +835,7 @@ function DeliveryRow({
             {reason}
           </p>
         )}
-        {note && <p className="text-[11px] text-muted-foreground mt-1">{note}</p>}
+        {note && <p className="text-[11px] text-muted-foreground/70 mt-1">{note}</p>}
         {detail && (
           <p className="text-[11px] text-warning mt-0.5 break-words">{detail}</p>
         )}
@@ -902,7 +902,7 @@ function RowKV({
       </p>
       <p
         className={`font-mono break-all ${
-          muted ? "text-muted-foreground italic" : "text-foreground"
+          muted ? "text-muted-foreground/70 italic" : "text-foreground"
         }`}
       >
         {value}

@@ -355,7 +355,7 @@ export function CustomSelect<T extends string>({
                         <span className="flex min-w-0 flex-col">
                           <span className="truncate">{option.label}</span>
                           {option.description && (
-                            <span className="truncate text-xs text-muted-foreground">
+                            <span className="truncate text-xs text-muted-foreground/70">
                               {option.description}
                             </span>
                           )}
@@ -456,7 +456,7 @@ export function CustomSelect<T extends string>({
                 {selectedOption.label}
               </span>
               {variant === "default" && selectedOption.description && (
-                <span className="truncate text-xs font-normal text-muted-foreground">
+                <span className="truncate text-xs font-normal text-muted-foreground/70">
                   {selectedOption.description}
                 </span>
               )}

@@ -1479,7 +1479,7 @@ export default function AppInstallPage() {
                       <div key={key}>
                         <div className="mb-2 flex items-center gap-2">
                           <span className="text-sm font-medium text-foreground">{e.label}</span>
-                          <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
                             {e.kind === "http" ? w.httpBadge : w.tcpBadge}
                           </span>
                           <span className="font-mono text-[11px] text-muted-foreground/50">
@@ -1542,7 +1542,7 @@ export default function AppInstallPage() {
                               </div>
                             )}
                             {st.mode === "port" && isDesktop && (
-                              <p className="mt-2 text-xs text-muted-foreground">
+                              <p className="mt-2 text-xs text-muted-foreground/70">
                                 {w.desktopReachNote}
                               </p>
                             )}
@@ -1575,7 +1575,7 @@ export default function AppInstallPage() {
                               </p>
                             )}
                             {st.mode === "internal" && isDesktop && (
-                              <p className="mt-2 text-xs text-muted-foreground">
+                              <p className="mt-2 text-xs text-muted-foreground/70">
                                 {w.desktopReachNote}
                               </p>
                             )}

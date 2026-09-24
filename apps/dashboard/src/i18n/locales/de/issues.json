@@ -2,9 +2,13 @@
   "title": "Monitoring",
   "subtitle": "Alles, was Openship in deinen Projekten, Servern und Domains gefunden hat.",
   "tabs": {
-    "open": "Offen",
+    "open": "Übersicht",
     "health": "Gesundheit",
-    "resolved": "Behoben"
+    "resolved": "Verlauf"
+  },
+  "monitoringHint": {
+    "description": "Dienststatus ansehen und Hintergrundüberwachung verwalten.",
+    "action": "Überwachung verwalten"
   },
   "resolvedNote": "Der Verlauf umfasst Container- und Server-Vorfälle — die übrigen Prüfungen melden den aktuellen Zustand, ein behobenes Zertifikat oder Deployment verschwindet hier also einfach.",
   "rescan": "Neu prüfen",

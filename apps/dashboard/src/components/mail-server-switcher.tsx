@@ -84,7 +84,7 @@ export function MailServerSwitcher({ collapsed }: { collapsed: boolean }) {
 
       {open && (
         <div
-          className={`absolute z-50 overflow-hidden rounded-2xl border border-border/50 bg-popover shadow-xl shadow-black/[0.08] ${
+          className={`absolute z-50 overflow-hidden rounded-2xl border border-border/50 bg-popover shadow-[var(--th-dropdown-shadow)] ${
             collapsed ? "start-full top-0 ms-2 w-64" : "start-0 end-0 top-full mt-1"
           }`}
         >

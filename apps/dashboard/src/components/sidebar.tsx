@@ -364,7 +364,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
           {navSections.map(({ section, items }, si) => (
             <div key={section ?? si} className={si > 0 ? "mt-5" : undefined}>
               {!collapsed && section && (
-                <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                   {sectionLabel(section)}
                 </p>
               )}
@@ -387,12 +387,9 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
                       href={href}
                       title={collapsed ? (issueLabel ?? label(key, labelSource)) : undefined}
                       aria-label={issueLabel}
-                      className={`flex items-center rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors ${
+                      aria-current={active ? "page" : undefined}
+                      className={`th-nav-item flex items-center rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors ${
                         collapsed ? "justify-center" : "gap-3"
-                      } ${
-                        active
-                          ? "bg-foreground/[0.07] text-foreground"
-                          : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
                       }`}
                     >
                       <Icon className="size-[18px] shrink-0" strokeWidth={1.7} />
@@ -435,11 +432,10 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
           <Link
             href={cta.href}
             title={collapsed ? label(cta.labelKey) : undefined}
-            className={`relative flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all overflow-hidden ${"bg-gradient-to-r from-violet-500/90 via-primary/90 to-blue-500/90 text-white shadow-sm shadow-primary/20 hover:shadow-md hover:shadow-primary/30 hover:brightness-110 dark:from-amber-400/90! dark:via-orange-500/90! dark:to-rose-500/90! dark:shadow-orange-500/20 dark:hover:shadow-orange-500/30 dim:from-[hsl(86_84%_74%)]! dim:via-[hsl(82_80%_64%)]! dim:to-[hsl(74_74%_54%)]! dim:text-[#0c1206]! dim:shadow-lime-400/25 dim:hover:shadow-lime-400/40"}`}
+            className="th-btn-accent flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all overflow-hidden hover:brightness-110"
           >
-            <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.15),transparent_70%)]" />
-            <Plus className="relative size-4" strokeWidth={2.5} />
-            {!collapsed && <span className="relative">{label(cta.labelKey)}</span>}
+            <Plus className="size-4" strokeWidth={2.5} />
+            {!collapsed && <span>{label(cta.labelKey)}</span>}
           </Link>
         </div>
       )}
@@ -448,7 +444,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
       <div className="px-3 pb-4 pt-1">
         <div className="mx-2 mb-3 h-px bg-border/60" />
         {!collapsed && (
-          <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
             {t.dashboard.nav.sections.account}
           </p>
         )}
@@ -493,13 +489,13 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
             {/* Popover — shown to the side when collapsed, above when expanded */}
             {orgsOpen && (
               <div
-                className={`absolute z-50 overflow-hidden rounded-2xl border border-border/50 bg-popover shadow-xl shadow-black/[0.08] ${
+                className={`absolute z-50 overflow-hidden rounded-2xl border border-border/50 bg-popover shadow-[var(--th-dropdown-shadow)] ${
                   collapsed ? "start-full bottom-0 ms-2 w-72" : "start-0 end-0 bottom-full mb-2"
                 }`}
               >
                 {/* Heading */}
                 <div className="px-3 pt-3 pb-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
                     {t.chrome.sidebar.switchOrganization}
                   </p>
                 </div>
@@ -570,7 +566,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
                       </p>
                       {cloudBadge?.email && (
                         <p
-                          className="truncate text-[10px] leading-tight text-muted-foreground"
+                          className="truncate text-[10px] leading-tight text-muted-foreground/70"
                           title={interpolate(t.chrome.sidebar.linkedToCloud, {
                             email: cloudBadge.email,
                           })}
@@ -622,7 +618,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
                     </p>
                     {cloudBadge?.email && (
                       <p
-                        className="truncate text-[11px] leading-tight text-muted-foreground"
+                        className="truncate text-[11px] leading-tight text-muted-foreground/70"
                         title={interpolate(t.chrome.sidebar.linkedToCloud, {
                           email: cloudBadge.email,
                         })}

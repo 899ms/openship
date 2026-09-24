@@ -20,12 +20,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/context/ModalContext", () => ({
   useModal: () => ({ showModal: mocks.showModal, hideModal: mocks.hideModal }),
 }));
-vi.mock("@/context/PlatformContext", () => ({ usePlatform: () => ({ selfHosted: mocks.selfHosted }) }));
+vi.mock("@/context/PlatformContext", () => ({
+  usePlatform: () => ({ selfHosted: mocks.selfHosted }),
+}));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/components/issues/MonitoringHealth", () => ({
-  MonitoringHealth: ({ onViewIssues }: { onViewIssues: () => void }) => (
-    <button onClick={onViewIssues}>View issues</button>
-  ),
+  MonitoringHealth: () => <div>Container health content</div>,
 }));
 vi.mock("@/lib/api", () => ({
   getApiBaseUrl: () => "http://localhost/api/",
@@ -140,22 +140,69 @@ beforeEach(() => {
 });
 
 describe("Monitoring health navigation", () => {
-  it("links back to Issues without duplicating the health tab's scan controls or feed reads", async () => {
+  it("opens Health from the Overview hint without duplicating scan controls or feed reads", async () => {
     await render();
     const reads = mocks.list.mock.calls.length;
-    await click("Health");
+    await click("Manage monitoring");
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe(
+      "Health",
+    );
+    expect(document.activeElement?.id).toBe("monitoring-tab-health");
+    expect(buttons("Manage monitoring")).toHaveLength(0);
     expect(buttons("Re-scan")).toHaveLength(0);
     expect(mocks.list).toHaveBeenCalledTimes(reads);
-    await click("View issues");
+    await click("Overview");
     expect(buttons("Re-scan")).toHaveLength(1);
     expect(mocks.list).toHaveBeenCalledTimes(reads + 1);
+  });
+
+  it.each(["ltr", "rtl"])("supports arrow, Home and End navigation with the active tab and panel linked (%s)", async (direction) => {
+    await render();
+    for (const button of container.querySelectorAll<HTMLElement>('[role="tab"]')) {
+      button.style.direction = direction;
+    }
+    const overview = container.querySelector<HTMLButtonElement>(
+      '[role="tab"][aria-selected="true"]',
+    )!;
+    overview.focus();
+    const press = (key: string) =>
+      act(async () => {
+        document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+    await press(direction === "rtl" ? "ArrowLeft" : "ArrowRight");
+    expect(document.activeElement?.id).toBe("monitoring-tab-health");
+    expect(container.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby")).toBe(
+      "monitoring-tab-health",
+    );
+    await press("End");
+    expect(document.activeElement?.textContent).toBe("History");
+    await press("Home");
+    expect(document.activeElement?.textContent).toBe("Overview");
+    await press(direction === "rtl" ? "ArrowRight" : "ArrowLeft");
+    expect(document.activeElement?.textContent).toBe("History");
+    expect(container.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
+  });
+
+  it("keeps current scans and fleet update controls in Overview when viewing History", async () => {
+    await render();
+    expect(buttons("View logs")).toHaveLength(1);
+    mocks.list.mockResolvedValue({ data: [], counts: { total: 0, outage: 0, action_required: 0, advisory: 0 } });
+    await click("History");
+    expect(mocks.list).toHaveBeenLastCalledWith("resolved");
+    expect(buttons("Re-scan")).toHaveLength(0);
+    expect(buttons("View logs")).toHaveLength(0);
+    expect(container.textContent).toContain("No resolved incidents");
+    await click("Overview");
+    expect(mocks.list).toHaveBeenLastCalledWith("open");
+    expect(buttons("Re-scan")).toHaveLength(1);
+    expect(buttons("View logs")).toHaveLength(1);
   });
 
   it("excludes local health controls and scan-status polling in cloud mode", async () => {
     mocks.selfHosted = false;
     await render();
     expect(buttons("Health")).toHaveLength(0);
-    expect(buttons("View issues")).toHaveLength(0);
+    expect(buttons("Manage monitoring")).toHaveLength(0);
     expect(buttons("Re-scan")).toHaveLength(0);
     expect(mocks.rescanStatus).not.toHaveBeenCalled();
     expect(mocks.install).not.toHaveBeenCalled();

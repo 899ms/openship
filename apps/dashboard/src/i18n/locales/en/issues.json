@@ -2,9 +2,13 @@
   "title": "Monitoring",
   "subtitle": "Health, updates and activity across your projects, servers and domains.",
   "tabs": {
-    "open": "Open",
+    "open": "Overview",
     "health": "Health",
-    "resolved": "Resolved"
+    "resolved": "History"
+  },
+  "monitoringHint": {
+    "description": "See service status and manage background monitoring.",
+    "action": "Manage monitoring"
   },
   "resolvedNote": "History covers container and server incidents — the other checks report current state, so a fixed certificate or deploy simply stops appearing here.",
   "rescan": "Re-scan",

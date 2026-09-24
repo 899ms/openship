@@ -1,14 +1,16 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { FolderGit2, Loader2 } from "lucide-react";
 
 import ComposeSidebar from "./ComposeSidebar";
 import BuildTerminal from "../BuildTerminal";
-import { DeploymentConfigurationAction, DeploymentSuccessActions } from "../DeploymentActions";
+import { DeploymentHeader } from "../DeploymentHeader";
+import { DeploymentLogsPanel } from "../DeploymentLogsPanel";
+import { PageContainer } from "@/components/ui/PageContainer";
+import { Tabs } from "@/components/ui/Tabs";
 import { PortAdvisoryModal } from "../PortAdvisoryModal";
 import { PromptDetails } from "../PromptDetails";
-import { generateIcon } from "@/utils/icons";
 import { useRouter } from "next/navigation";
 import { useDeployment } from "@/context/DeploymentContext";
 import { useModal } from "@/context/ModalContext";
@@ -38,7 +40,7 @@ interface Props {
 }
 
 const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
-  const { config, state, onTerminalReady, stopDeployment, respondToPrompt, deploymentStatus } =
+  const { config, state, onTerminalReady, respondToPrompt, deploymentStatus } =
     useDeployment();
   const { showModal, hideModal } = useModal();
   const showCloudPricing = useCloudDeployPricing();
@@ -46,12 +48,8 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
   const { resolvedTheme } = useTheme();
   const { t } = useI18n();
   const cd = t.importProject.composeDeployment;
-  const cnt = t.importProject.counts;
   const router = useRouter();
   const promptModalRef = React.useRef<string | null>(null);
-  // Holds the Redeploy button's spinner from click until navigation to the new
-  // deployment (or re-enables on failure).
-  const [isRedeploying, setIsRedeploying] = useState(false);
   // Tracks which deployment's decision dialog we've already auto-opened, so it
   // pops once (not on every re-render) while staying re-openable via the banner.
   const autoOpenedDecisionRef = React.useRef<string | null>(null);
@@ -299,61 +297,14 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
     setDecisionModalOpen(true);
   }, [showDecision, state.deploymentId]);
 
-  // ── Title ──────────────────────────────────────────────────────────────
-  const title =
-    deploymentStatus === "cancelled"
-      ? cd.title.cancelled
-      : deploymentStatus === "failed"
-        ? cd.title.failed
-        : showDecision
-          ? cd.title.actionRequired
-          : hasWarning
-            ? cd.title.warnings
-            : deploymentStatus === "ready"
-              ? cd.title.successful
-              : cd.title.deploying;
-
   return (
-    <div className="min-h-screen bg-background max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="py-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            {/* Sits on the PAGE, not a card — `bg-muted` (4%) over light's #f9f9f9
-                still reads; `/50` would not. Borderless, same rule as the chips
-                inside the panel below. */}
-            <div className="flex shrink-0 bg-muted rounded-xl w-12 h-12 justify-center items-center">
-              {deploymentStatus === "failed" || deploymentStatus === "cancelled" ? (
-                <XCircle className="w-6 h-6 text-destructive" />
-              ) : deploymentStatus === "ready" ? (
-                <CheckCircle2 className="w-6 h-6 text-primary" />
-              ) : (
-                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-              <p className="text-sm text-muted-foreground mt-0.5 break-all">
-                {config.owner}/{config.repo}
-                {total > 0 && (
-                  <span className="ms-2 text-xs">
-                    · {interpolate(total === 1 ? cnt.serviceOne : cnt.serviceOther, { count: String(total) })}
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          {deploymentStatus === "ready" && (
-            <DeploymentConfigurationAction className="self-start sm:shrink-0" />
-          )}
-        </div>
-      </div>
+    <PageContainer>
+      <DeploymentHeader onRedeploy={onRedeploy} serviceCount={total} decisionPending={showDecision} />
 
       {/* ── Grid ───────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_320px]">
         {/* Main column */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="min-w-0 space-y-5">
           {/* Decision banner — persists while a partial deploy awaits keep/reject
               (survives refresh via the server flag). Re-opens the dialog. */}
           {showDecision ? (
@@ -420,73 +371,8 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
         </div>
 
         {/* Sidebar */}
-        <div className="lg:sticky lg:top-6 h-fit space-y-6">
+        <div className="h-fit min-w-0 xl:sticky xl:top-6">
           <ComposeSidebar />
-
-          {/* Action buttons */}
-          <div className="bg-card rounded-2xl border border-border/50 p-4 space-y-2">
-            {isRedeploying ? (
-              <button
-                disabled
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm bg-primary/60 text-primary-foreground cursor-not-allowed"
-              >
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {cd.redeploying}
-              </button>
-            ) : deploymentStatus === "deploying" || deploymentStatus === "building" ? (
-              <button
-                onClick={stopDeployment}
-                disabled={state.isStopping}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm border ${
-                  state.isStopping
-                    ? "bg-muted text-muted-foreground border-border cursor-not-allowed"
-                    : "bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/15 hover:border-destructive/30"
-                }`}
-              >
-                {state.isStopping ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {cd.stopping}
-                  </>
-                ) : (
-                  cd.stopDeployment
-                )}
-              </button>
-            ) : state.cancellationPending ? (
-              <button
-                disabled
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm bg-muted text-muted-foreground cursor-not-allowed"
-              >
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {cd.stopping}
-              </button>
-            ) : (
-              <>
-                {(deploymentStatus === "failed" || deploymentStatus === "cancelled") && (
-                  <button
-                    onClick={async () => {
-                      if (isRedeploying) return;
-                      setIsRedeploying(true);
-                      // Keep the spinner up until the redeploy resolves and
-                      // navigates to the new deployment; re-enable on failure.
-                      try {
-                        await onRedeploy();
-                      } finally {
-                        setIsRedeploying(false);
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium text-sm hover:bg-primary/90 transition-all"
-                  >
-                    {cd.redeploy}
-                  </button>
-                )}
-                {deploymentStatus === "ready" && <DeploymentSuccessActions />}
-                {deploymentStatus !== "ready" && (
-                  <DeploymentConfigurationAction className="w-full" />
-                )}
-              </>
-            )}
-          </div>
         </div>
       </div>
 
@@ -508,7 +394,7 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
           />
         </Modal>
       )}
-    </div>
+    </PageContainer>
   );
 };
 
@@ -609,27 +495,18 @@ function parseLogLines(
 function statusDotClass(status?: ServiceDeployStatus["status"]) {
   switch (status) {
     case "running":
-      return "bg-primary";
+      return "bg-success-solid";
     case "built":
       return "bg-muted-foreground";
     case "building":
     case "deploying":
       return "bg-foreground";
     case "failed":
-      return "bg-destructive";
+      return "bg-danger-solid";
     case "pending":
     default:
-      return "bg-muted-foreground/40";
+      return "bg-muted-foreground";
   }
-}
-
-// Borderless, neutral tabs. Status is conveyed by the leading dot/spinner only —
-// tinting the whole pill by status turned every tab solid red on a failed deploy
-// and clashed with the app's theme. The active tab reads via a subtle raised fill.
-function serviceTabClass(isActive: boolean) {
-  return isActive
-    ? "bg-foreground/10 text-foreground"
-    : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground";
 }
 
 function ComposeServiceLogsPanel({
@@ -746,126 +623,62 @@ function ComposeServiceLogsPanel({
     ];
   }, [hasFinished, parsedLogs, serviceNames, cd]);
 
+  const tabPrefix = React.useId();
+  const selectedTabId = terminalTabs.some(tab => tab.id === activeTab) ? activeTab : PREPARE_TAB;
+  const usesRuntimeLogs = (name: string) => name !== PREPARE_TAB && !!projectId && !!deploymentId &&
+    !!serviceIdByName.get(name) && serviceLogSource({
+      deploymentStatus, decisionPending, isCurrentDeployment,
+      serviceStatus: serviceStatusByName.get(name),
+    }) === "runtime";
+
   return (
-    <div className="bg-card rounded-2xl border border-border/50 p-6 mb-20">
-      <div className="flex flex-col gap-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            {/* Borderless chip — see globals.css: the card override only clears
-                `border-border/50` on `.bg-card`, so every tinted chip and box
-                INSIDE a card kept its hairline and the panel read as a stack of
-                outlined rectangles. Full-strength `bg-muted` (not `/50`) is what
-                lets the fill carry it alone: `--muted` is `--th-sf-04`, so at 50%
-                it lands on ~2% over light's white card — too faint to read as a
-                surface once the hairline is gone. */}
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              {generateIcon("terminal-58-1658431404.png", 18, "currentColor")}
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold tracking-tight text-foreground">{cd.logsTitle}</h2>
-              <p className="truncate text-xs text-muted-foreground">{cd.logsSubtitle}</p>
-            </div>
+    <DeploymentLogsPanel
+      title={cd.logsTitle}
+      summary={
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {usesRuntimeLogs(selectedTabId) && <span className="inline-flex items-center gap-1.5 text-success"><span className="size-1.5 rounded-full bg-success-solid" aria-hidden />{t.importProject.deploymentProcessing.productionLogs}</span>}
+          {total > 0 && <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 tabular-nums">
+            <span><span className="font-medium text-foreground">{running}/{total}</span> {tally.running}</span>
+            {built > 0 && <span>{interpolate(tally.builtSuffix, { count: String(built) })}</span>}
+            {building > 0 && <span>{interpolate(tally.buildingSuffix, { count: String(building) })}</span>}
+            {failed > 0 && <span className="text-danger">{interpolate(tally.failedSuffix, { count: String(failed) })}</span>}
+          </span>}
+        </div>
+      }
+      progress={!isFinished && total > 0 && (
+        <div className="mx-5 mb-3 h-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={cd.title.deploying} aria-valuemin={0} aria-valuemax={total} aria-valuenow={settled}>
+          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${(settled / total) * 100}%` }} />
+        </div>
+      )}
+      tabs={
+        <Tabs value={selectedTabId} onChange={onTabChange} idPrefix={tabPrefix} ariaLabel={cd.logsTitle} fullWidth className="px-2" tabs={terminalTabs.map(tab => {
+          const status = serviceStatusByName.get(tab.id);
+          return {
+            key: tab.id,
+            label: tab.label,
+            leading: tab.id === PREPARE_TAB ? <FolderGit2 className="size-4 shrink-0" aria-hidden /> : (
+              <span className="inline-flex size-4 shrink-0 items-center justify-center" role="img" aria-label={t.importProject.serviceStatus[status ?? "pending"]}>
+                {status === "building" || status === "deploying" ? <Loader2 className="size-3.5 animate-spin text-info" aria-hidden /> : <span className={`size-1.5 rounded-full ${statusDotClass(status)}`} />}
+              </span>
+            ),
+          };
+        })} />
+      }
+    >
+      {terminalTabs.map(tab => {
+        const serviceId = serviceIdByName.get(tab.id);
+        const active = selectedTabId === tab.id;
+        return (
+          <div key={tab.id} id={`${tabPrefix}-panel-${tab.id}`} role="tabpanel" aria-labelledby={`${tabPrefix}-tab-${tab.id}`} aria-hidden={!active} tabIndex={active ? 0 : -1} className={`absolute inset-0 focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 ${active ? "" : "invisible pointer-events-none"}`}>
+            {usesRuntimeLogs(tab.id) && projectId && deploymentId && serviceId ? (
+              <LiveServiceLogsTerminal projectId={projectId} deploymentId={deploymentId} serviceId={serviceId} active={active} theme={terminalTheme} />
+            ) : (
+              <ComposeLogTerminal logs={tab.logs} active={active} emptyMessage={tab.emptyMessage} theme={terminalTheme} />
+            )}
           </div>
-          {total > 0 && (
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground tabular-nums">
-              <span className="font-semibold text-foreground">{running}/{total}</span> {tally.running}
-              {built > 0 && <span>{interpolate(tally.builtSuffix, { count: String(built) })}</span>}
-              {building > 0 && <span>{interpolate(tally.buildingSuffix, { count: String(building) })}</span>}
-              {failed > 0 && <span className="text-destructive">{interpolate(tally.failedSuffix, { count: String(failed) })}</span>}
-            </span>
-          )}
-        </div>
-
-        {!isFinished && total > 0 && (
-          <div className="h-1 rounded-full overflow-hidden bg-border/50">
-            <div
-              className="h-full transition-all duration-500 bg-primary"
-              style={{ width: `${(settled / total) * 100}%` }}
-            />
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          {terminalTabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            const isPrepare = tab.id === PREPARE_TAB;
-            const status = isPrepare ? undefined : serviceStatusByName.get(tab.id);
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => onTabChange(tab.id)}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${serviceTabClass(isActive)}`}
-              >
-                {isPrepare ? (
-                  isFinished ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                  ) : (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  )
-                ) : status === "building" || status === "deploying" ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass(status)}`} />
-                )}
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Borderless on dark/dim, where the console is the darkest surface on the
-            page and finds itself — the hairline there (inside an already-bordered
-            card) is what made this screen read as boxes inside boxes.
-            LIGHT KEEPS ITS BORDER: xterm paints `#ffffff` (TerminalSurface's light
-            theme) inside a `bg-card` that is also `#ffffff`, so with no hairline
-            the console becomes a white rectangle on a white card with no boundary
-            at all. A recessed container can't fix it either — the terminal's own
-            paint covers whatever is underneath. Same rule the card override
-            follows: borderless depends on fill contrast, and light has none here. */}
-        <div className="relative h-[420px] overflow-hidden rounded-xl border border-border/50 bg-white dark:border-transparent dark:bg-black dim:border-transparent dim:bg-black">
-          {terminalTabs.length > 0 ? (
-            terminalTabs.map((tab) => {
-              const isPrepare = tab.id === PREPARE_TAB;
-              const serviceId = isPrepare ? undefined : serviceIdByName.get(tab.id);
-              const live =
-                !isPrepare &&
-                !!projectId &&
-                !!deploymentId &&
-                !!serviceId &&
-                serviceLogSource({
-                  deploymentStatus,
-                  decisionPending,
-                  isCurrentDeployment,
-                  serviceStatus: serviceStatusByName.get(tab.id),
-                }) === "runtime";
-              return live ? (
-                <LiveServiceLogsTerminal
-                  key={tab.id}
-                  projectId={projectId}
-                  deploymentId={deploymentId}
-                  serviceId={serviceId}
-                  active={activeTab === tab.id}
-                  theme={terminalTheme}
-                />
-              ) : (
-                <ComposeLogTerminal
-                  key={tab.id}
-                  logs={tab.logs}
-                  active={activeTab === tab.id}
-                  emptyMessage={tab.emptyMessage}
-                  theme={terminalTheme}
-                />
-              );
-            })
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
-              <p className="text-sm text-muted-foreground">{cd.preparingServiceLogs}</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+        );
+      })}
+    </DeploymentLogsPanel>
   );
 }
 
