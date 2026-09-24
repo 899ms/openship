@@ -35,12 +35,9 @@ export const UpdateServerInputSchema = Type.Object(connectionFields, { additiona
 export type CreateServerInput = Static<typeof CreateServerInputSchema>;
 export type UpdateServerInput = Static<typeof UpdateServerInputSchema>;
 
+/** Local server annotation; the full connection diagnosis belongs to reachability. */
 export const HostChannelSchema = Type.Object({
-  ok: Type.Boolean(), code: Type.String(),
-  host: Type.Optional(Type.String()), port: Type.Optional(Type.Number()),
-  target: Type.Optional(Type.String()), hint: Type.Optional(Type.String()),
-  rule: Type.Optional(Type.String()), cause: Type.Optional(Type.String()),
-  forwarding: Type.Optional(Type.Union([Type.Literal("ok"), Type.Literal("blocked"), Type.Literal("unknown")])),
+  ok: Type.Boolean(), channel: Type.String(), hint: nullableString,
 }, { additionalProperties: false });
 
 const serverFields = {
@@ -60,7 +57,7 @@ export type ServerDetail = Static<typeof ServerDetailSchema>;
 export const ServerReachabilitySchema = Type.Object({
   reachable: Type.Boolean(), code: Type.String(), target: nullableString,
   port: Type.Union([Type.Number(), Type.Null()]), hint: nullableString, rule: nullableString,
-  channel: Type.Union([HostChannelSchema, Type.Null()]),
+  channel: nullableString,
 });
 
 export const ServerDeletionPreviewSchema = Type.Object({
