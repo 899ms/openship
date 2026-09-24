@@ -67,7 +67,7 @@ const BuildPage: React.FC = () => {
         return;
       }
       const result = await loadBuildSession(deploymentId);
-      if (!result.success) {
+      if (!result.success && !result.superseded) {
         // Only the server saying "this doesn't exist" (soft-failed status or
         // HTTP 404) renders the not-found screen. Anything else — a throw while
         // hydrating a successful response, a 5xx, a network blip — keeps the

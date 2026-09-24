@@ -401,7 +401,10 @@ export async function onReconciling(
   }
 
   const collapsed = collectLogs(ctx);
-  await recordOutcome(dep.id, "reconciling", { errorMessage: null });
+  await recordOutcome(dep.id, "reconciling", {
+    errorMessage: null,
+    buildDurationMs: result.durationMs ?? 0,
+  });
   ctx.settled = "reconciling";
   // The build stream is finished; the SSE layer has no "reconciling", so close
   // it as "ready" with a warning. The dashboard reads the DB row's `reconciling`
@@ -444,7 +447,12 @@ export async function onNoChanges(
     ...previousMeta,
     composeDeployment: { ...(previousMeta.composeDeployment ?? {}), warningMessage: reason },
   });
-  await recordOutcome(dep.id, "no_changes", { errorMessage: null, meta: mergedMeta }, ["meta"]);
+  await recordOutcome(
+    dep.id,
+    "no_changes",
+    { errorMessage: null, meta: mergedMeta, buildDurationMs: result.durationMs ?? 0 },
+    ["meta"],
+  );
   ctx.settled = "no_changes";
   // The SSE layer has no third terminal state, so the stream closes "ready" and
   // the dashboard reads `no_changes` off the row (same split as onReconciling).
@@ -533,6 +541,9 @@ export async function onFailure(
     dep.id,
     dbStatus,
     {
+      // The outcome and its measurement survive together even if the later
+      // build-session/log write fails. Status readers can use this record.
+      buildDurationMs: durationMs ?? 0,
       errorMessage,
       errorCode: errorMeta?.errorCode ?? null,
       errorDetails: sanitizeStorableStrings(errorMeta?.errorDetails) ?? null,
@@ -745,7 +756,7 @@ export async function onSuccess(
   const outcome = await recordOutcome(
     dep.id,
     "ready",
-    { errorMessage: null, meta: mergedMeta, version },
+    { errorMessage: null, meta: mergedMeta, version, buildDurationMs: result.durationMs },
     ["meta"],
   );
   const outcomeError = outcome.error;
