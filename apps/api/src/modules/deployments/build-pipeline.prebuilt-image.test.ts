@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   claimBuildExecution: vi.fn(),
   cancelUnclaimedBuild: vi.fn(),
   acknowledgeBuildExecutionFinished: vi.fn(),
+  hasLiveBuildExecution: vi.fn(),
   updateDeploymentStatus: vi.fn(),
   updateBuildSession: vi.fn(),
   findDeploymentById: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock("@repo/db", () => ({
       cancelUnclaimedBuild: (...args: unknown[]) => mocks.cancelUnclaimedBuild(...args),
       acknowledgeBuildExecutionFinished: (...args: unknown[]) =>
         mocks.acknowledgeBuildExecutionFinished(...args),
+      hasLiveBuildExecution: (...args: unknown[]) => mocks.hasLiveBuildExecution(...args),
       updateStatus: (...args: unknown[]) => mocks.updateDeploymentStatus(...args),
       updateBuildSession: (...args: unknown[]) => mocks.updateBuildSession(...args),
       findById: (...args: unknown[]) => mocks.findDeploymentById(...args),
@@ -265,6 +267,13 @@ function allocatePinnedHostPort(input: {
 import { platform } from "@repo/platform/engine/lib/platform-config";
 import { resolveDeploymentPlatform } from "@repo/platform/engine/lib/deployment-runtime";
 import { kickoffBuild } from "@repo/platform/engine/modules/deployments/build-pipeline";
+import {
+  drainDeploymentExecutions,
+  registerDeploymentExecution,
+  releaseDeploymentExecution,
+  requestDeploymentCancellation,
+  waitForDeploymentQuiescence,
+} from "@repo/platform/engine/modules/deployments/deployment-cancellation";
 
 const SOURCE_IMAGE = "ghcr.io/acme/release-app:v1.2.3";
 const RESOLVED_IMAGE = "ghcr.io/acme/release-app@sha256:abc123";
@@ -366,6 +375,7 @@ describe("single-app prebuilt release-image pipeline", () => {
     mocks.claimBuildExecution.mockResolvedValue("claimed");
     mocks.cancelUnclaimedBuild.mockResolvedValue(true);
     mocks.acknowledgeBuildExecutionFinished.mockResolvedValue(undefined);
+    mocks.hasLiveBuildExecution.mockResolvedValue(false);
     mocks.updateDeploymentStatus.mockResolvedValue(undefined);
     mocks.updateBuildSession.mockResolvedValue(undefined);
     mocks.setDeploymentStatus.mockResolvedValue(undefined);
@@ -493,6 +503,74 @@ describe("single-app prebuilt release-image pipeline", () => {
     expect(mocks.build).not.toHaveBeenCalled();
     expect(mocks.prepareImage).not.toHaveBeenCalled();
     expect(mocks.deploy).not.toHaveBeenCalled();
+  });
+
+  it("finishes cancellation after a database outage without releasing a live worker (#919)", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let finishPreparation!: () => void;
+    const preparing = new Promise<void>((resolve) => {
+      finishPreparation = resolve;
+    });
+    let leaseOpen = true;
+    mocks.hasLiveBuildExecution.mockImplementation(async () => leaseOpen);
+    mocks.prepareImage.mockImplementationOnce(async () => {
+      await preparing;
+      throw new Error("Image preparation cancelled");
+    });
+    mocks.acknowledgeBuildExecutionFinished
+      .mockRejectedValueOnce(new Error("Database connection lost"))
+      .mockRejectedValueOnce(new Error("Database still unavailable"))
+      .mockImplementationOnce(async () => {
+        leaseOpen = false;
+      });
+    const dep = await run();
+    const signal = registerDeploymentExecution("deployment-1");
+    try {
+      await vi.waitFor(() => expect(mocks.prepareImage).toHaveBeenCalledOnce());
+      Object.assign(dep, { status: "cancelled" });
+      requestDeploymentCancellation("deployment-1");
+      let drained = false;
+      const drain = drainDeploymentExecutions().then(() => {
+        drained = true;
+      });
+
+      // Requesting cancellation is not permission to abandon a host operation.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mocks.acknowledgeBuildExecutionFinished).not.toHaveBeenCalled();
+      expect(drained).toBe(false);
+      await expect(
+        waitForDeploymentQuiescence("deployment-1", "project-1", { timeoutMs: 0 }),
+      ).resolves.toBe(false);
+
+      finishPreparation();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.onCancelled).toHaveBeenCalledOnce();
+      expect(mocks.acknowledgeBuildExecutionFinished).toHaveBeenCalledOnce();
+      expect(drained).toBe(false);
+      await expect(
+        waitForDeploymentQuiescence("deployment-1", "project-1", { timeoutMs: 0 }),
+      ).resolves.toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(leaseOpen).toBe(true);
+      expect(drained).toBe(false);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await drain;
+      await expect(
+        waitForDeploymentQuiescence("deployment-1", "project-1", { timeoutMs: 0 }),
+      ).resolves.toBe(true);
+      expect(mocks.acknowledgeBuildExecutionFinished).toHaveBeenCalledTimes(3);
+      expect(mocks.prepareImage).toHaveBeenCalledOnce();
+      expect(mocks.onCancelled).toHaveBeenCalledOnce();
+      expect(mocks.deploy).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      finishPreparation();
+      releaseDeploymentExecution("deployment-1", signal);
+      vi.useRealTimers();
+      log.mockRestore();
+    }
   });
 
   it("does not execute a legacy queued preview against a production target (#195)", async () => {

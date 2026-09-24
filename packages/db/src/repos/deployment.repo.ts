@@ -17,6 +17,37 @@ export type NewBuildSession = typeof buildSession.$inferInsert;
 
 export function createDeploymentRepo(db: Database, encryption: ConfigurationEncryption) {
   const codec = createConfigurationSecrets(encryption);
+
+  // Pin the outcome and its clock in the same transaction. The cancel handler
+  // and the worker can both finish the session later, but neither may replace
+  // this duration with cleanup time or a missing build result (zero). The worker
+  // lease, finishedAt, remains open until its outer finally acknowledges it.
+  async function recordCancellation(where: SQL, extra?: Partial<NewDeployment>): Promise<boolean> {
+    const now = new Date();
+    return db.transaction(async (tx) => {
+      const rows = await tx
+        .update(deployment)
+        .set(codec.sealDeployment({ ...extra, status: "cancelled", updatedAt: now }))
+        .where(where)
+        .returning();
+      if (rows.length === 0) return false;
+      await tx
+        .update(buildSession)
+        .set({
+          status: "cancelled",
+          // Preserve a measured duration if this is a completed partial release
+          // being superseded. Bound legacy stuck sessions to the integer column.
+          durationMs: sql`coalesce(${buildSession.durationMs}, case
+            when ${buildSession.startedAt} is null then 0
+            else least(2147483647, greatest(0, floor(extract(epoch from
+              (${now.toISOString()}::timestamp - ${buildSession.startedAt})) * 1000)))
+            end)`,
+        })
+        .where(eq(buildSession.deploymentId, rows[0].id));
+      return true;
+    });
+  }
+
   async function listHistory(scope: SQL, opts: DeploymentHistoryQuery = {}) {
     const page = opts.page ?? 1;
     const perPage = opts.perPage ?? 20;
@@ -426,6 +457,9 @@ export function createDeploymentRepo(db: Database, encryption: ConfigurationEncr
       status: string,
       extra?: Partial<NewDeployment>,
     ): Promise<boolean> {
+      if (status === "cancelled") {
+        return recordCancellation(and(eq(deployment.id, id), ne(deployment.status, "cancelled"))!, extra);
+      }
       const rows = await db
         .update(deployment)
         .set(codec.sealDeployment({ status, ...extra, updatedAt: new Date() }))
@@ -443,17 +477,10 @@ export function createDeploymentRepo(db: Database, encryption: ConfigurationEncr
      * prevents the worker from publishing ready/failure over the user's cancel.
      */
     async cancelInFlight(id: string, extra?: Partial<NewDeployment>): Promise<boolean> {
-      const rows = await db
-        .update(deployment)
-        .set(codec.sealDeployment({ ...extra, status: "cancelled", updatedAt: new Date() }))
-        .where(
-          and(
-            eq(deployment.id, id),
-            inArray(deployment.status, ["queued", "building", "deploying"]),
-          ),
-        )
-        .returning();
-      return rows.length > 0;
+      return recordCancellation(
+        and(eq(deployment.id, id), inArray(deployment.status, ["queued", "building", "deploying"]))!,
+        extra,
+      );
     },
 
     /**
@@ -800,8 +827,12 @@ export function createDeploymentRepo(db: Database, encryption: ConfigurationEncr
         db
           .update(buildSession)
           .set({
-            status,
-            durationMs,
+            // Cancellation pins both fields atomically with the deployment
+            // outcome. Late worker writes can still append their cleanup logs.
+            status: sql`case when ${buildSession.status} = 'cancelled'
+              then ${buildSession.status} else ${status} end`,
+            durationMs: sql`case when ${buildSession.status} = 'cancelled'
+              then ${buildSession.durationMs} else ${durationMs} end`,
             ...(payload === OMIT ? {} : { logs: payload as never }),
           })
           .where(eq(buildSession.id, id));

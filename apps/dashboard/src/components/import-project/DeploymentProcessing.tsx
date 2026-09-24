@@ -26,7 +26,7 @@ import { useRouter } from "next/navigation";
 import { encodeRepoSlug } from "@/utils/repoSlug";
 import { useDeployment } from "@/context/DeploymentContext";
 import { getPublicEndpointHosts, workloadOf } from "@/context/deployment/types";
-import { resolveBuildElapsedMs } from "@/context/deployment/types";
+import { useBuildElapsedMs } from "@/context/deployment/useBuildElapsedMs";
 import { usePlatform } from "@/context/PlatformContext";
 import { useTheme } from "@/components/theme-provider";
 import { useModal } from "@/context/ModalContext";
@@ -379,19 +379,12 @@ const DeploymentProcessing: React.FC<DeploymentProcessingProps> = ({ onRedeploy 
   );
 };
 
-/** Live-ticking total build time (excludes one-time prep). Isolated so the 1s
+/** Live build timer, replaced by the recorded duration at completion. Isolated so the 1s
  *  tick re-renders only this label, not the whole page. */
 const BuildTimeLabel = memo(() => {
   const { state } = useDeployment();
-  const [, setTick] = useState(0);
-  const isLive =
-    !state.deploymentSuccess && !state.deploymentFailed && !state.deploymentCanceled;
-  useEffect(() => {
-    if (!isLive) return;
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [isLive]);
-  return <>{formatDurationMs(resolveBuildElapsedMs(state))}</>;
+  const elapsedMs = useBuildElapsedMs(state);
+  return <>{elapsedMs === null ? "—" : formatDurationMs(elapsedMs)}</>;
 });
 BuildTimeLabel.displayName = "BuildTimeLabel";
 
