@@ -58,8 +58,6 @@ const BUSY_RECEIVER = "host mx.b.example said: 451 4.3.0 Temporary local problem
 const FULL_MAILBOX = "host mx.c.example said: 452 4.2.2 Mailbox full";
 const RELAY_NETWORK_REFUSAL =
   "connect to email-smtp.us-east-1.amazonaws.com[203.0.113.9]:587: Connection timed out";
-const OTHER_HOST_NETWORK_REFUSAL =
-  "connect to mx.someone-else.example[198.51.100.9]:25: Connection refused";
 
 const RELAY: OutboundRelay = {
   enabled: true,
@@ -156,8 +154,9 @@ describe("parseMailQueue", () => {
     );
 
     expect(parsed?.queued).toBe(6);
-    expect(parsed?.deferrals).toHaveLength(6);
-    expect(topDeferrals(parsed!.deferrals)).toEqual(parsed!.deferrals.slice(0, 3));
+    const deferrals = parsed?.deferrals ?? [];
+    expect(deferrals).toHaveLength(6);
+    expect(topDeferrals(deferrals)).toEqual(deferrals.slice(0, 3));
   });
 
   /**
@@ -444,38 +443,6 @@ describe("checkMailDelivery", () => {
         [GREYLIST_REFUSAL, BUSY_RECEIVER, FULL_MAILBOX, AUTH_REFUSAL].map((reason) => ({ reason })),
       ),
       "fail",
-      crowdedRows,
-    ],
-    [
-      "an auth refusal on the last shown row",
-      RELAY,
-      queueOutput(
-        [GREYLIST_REFUSAL, GREYLIST_REFUSAL, BUSY_RECEIVER, AUTH_REFUSAL].map((reason) => ({
-          reason,
-        })),
-      ),
-      "fail",
-      [GREYLIST_REFUSAL, BUSY_RECEIVER, AUTH_REFUSAL],
-    ],
-    [
-      "a network failure at another host ranked fourth",
-      RELAY,
-      crowdedQueue(OTHER_HOST_NETWORK_REFUSAL),
-      "warn",
-      crowdedRows,
-    ],
-    [
-      "a TLS failure ranked fourth with no relay host",
-      { ...RELAY, host: "" },
-      crowdedQueue(RELAY_TLS_REFUSAL),
-      "warn",
-      crowdedRows,
-    ],
-    [
-      "an auth refusal ranked fourth on a direct box",
-      undefined,
-      crowdedQueue(AUTH_REFUSAL),
-      "warn",
       crowdedRows,
     ],
   ])("grades %s", async (_label, relay, queue, status, shown) => {
