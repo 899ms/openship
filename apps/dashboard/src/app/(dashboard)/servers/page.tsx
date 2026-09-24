@@ -528,10 +528,10 @@ export default function ServersPage() {
                       ]
                     : [];
                   return (
-                    <div key={server.id} className="flex items-center pe-3">
+                    <div key={server.id} className="@container flex items-center pe-3">
                       <Link
                         href={`/servers/${server.id}`}
-                        className="group flex min-w-0 flex-1 items-center gap-3.5 px-5 py-3 text-start transition-colors hover:bg-muted/40"
+                        className="group grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-4 py-3 text-start transition-colors hover:bg-muted/40 @xl:flex @xl:gap-3.5 @xl:px-5"
                       >
                         {/* Avatar — full country flag when we can geolocate the IP, else glyph.
                             Fixed 36px slot keeps the name column aligned across rows. */}
@@ -552,7 +552,7 @@ export default function ServersPage() {
                         })()}
 
                         {/* Name + host (fixed column — keeps meta aligned, no dead gap) */}
-                        <div className="w-44 min-w-0 shrink-0 text-start lg:w-56">
+                        <div className="min-w-0 text-start @xl:w-44 @xl:shrink-0 @3xl:w-56">
                           <p className="truncate text-sm font-medium text-foreground">
                             {server.name}
                             {server.isLocal && (
@@ -567,7 +567,7 @@ export default function ServersPage() {
                         </div>
 
                         {/* Meta chips */}
-                        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+                        <div className="col-span-2 flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-hidden @xl:flex-nowrap @xl:gap-3">
                           {/* Nothing deployed → no chip at all. A greyed-out "0" beside
                               a layers glyph is noise that reads as an error. With
                               projects, the count is spelled out ("1 project") instead
@@ -615,7 +615,7 @@ export default function ServersPage() {
                         </div>
 
                         {/* Status state + arrow */}
-                        <div className="flex shrink-0 items-center gap-4">
+                        <div className="col-span-2 flex shrink-0 items-center gap-4">
                           <span
                             title={reachHint[server.id] ?? t.servers.list[state]}
                             className={`inline-flex items-center gap-1.5 text-xs font-medium ${sm.text}`}
