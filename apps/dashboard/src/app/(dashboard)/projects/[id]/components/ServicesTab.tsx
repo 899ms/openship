@@ -631,13 +631,13 @@ export const ServicesTab = () => {
                     {svc.name}
                   </span>
                   <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-[0.12em] ${svc.exposed ? "bg-success-bg text-success" : "bg-muted/60 text-muted-foreground"}`}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-[0.12em] ${svc.exposed ? "bg-success-bg text-success" : "bg-muted/60 text-muted-foreground/70"}`}
                   >
                     <Globe className="size-2.5" />
                     {svc.exposed ? t.projects.services.public : t.projects.services.internal}
                   </span>
                   {hostPort !== undefined && Number.isFinite(hostPort) && (
-                    <span className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground">
+                    <span className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground/70">
                       :{hostPort}
                     </span>
                   )}

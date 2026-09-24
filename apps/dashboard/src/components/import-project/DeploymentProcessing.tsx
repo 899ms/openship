@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, memo } from "react";
-import Image from "next/image";
+import React, { useEffect, useCallback, memo } from "react";
 import {
   CheckCircle2,
   XCircle,
@@ -10,22 +9,20 @@ import {
   Server,
   Cloud,
   Globe,
-  GitBranch,
   Hammer,
   Layers,
 } from "lucide-react";
 import type { Terminal } from "@xterm/xterm";
 import BuildTerminal from "./BuildTerminal";
-import { DeploymentConfigurationAction, DeploymentSuccessActions } from "./DeploymentActions";
+import { DeploymentHeader } from "./DeploymentHeader";
+import { DeploymentLogsPanel } from "./DeploymentLogsPanel";
+import { PageContainer } from "@/components/ui/PageContainer";
+import { getDeploymentSites } from "./deployment-sites";
 import { PortAdvisoryModal } from "./PortAdvisoryModal";
 import { PromptDetails } from "./PromptDetails";
 import { describeBuildStrategy } from "./deploy-target-label";
 import { DeployTargetValue } from "./DeployTargetValue";
-import { generateIcon } from "@/utils/icons";
-import { useRouter } from "next/navigation";
-import { encodeRepoSlug } from "@/utils/repoSlug";
 import { useDeployment } from "@/context/DeploymentContext";
-import { getPublicEndpointHosts, workloadOf } from "@/context/deployment/types";
 import { useBuildElapsedMs } from "@/context/deployment/useBuildElapsedMs";
 import { usePlatform } from "@/context/PlatformContext";
 import { useTheme } from "@/components/theme-provider";
@@ -46,45 +43,27 @@ function formatDurationMs(ms: number): string {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
-/** One themed row in the Deployment Details list: colored icon chip + label + value. */
-function DetailRow({
-  icon: Icon,
-  label,
-  value,
-  chipClass = "bg-muted/60",
-  iconClass = "text-muted-foreground",
-}: {
+/** The deployment metadata follows the project's compact label/value layout. */
+function DetailRow({ icon: Icon, label, value }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: React.ReactNode;
-  chipClass?: string;
-  iconClass?: string;
 }) {
   return (
-    <div className="flex items-center gap-3 min-w-0">
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${chipClass}`}>
-        <Icon className={`size-4 ${iconClass}`} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <div className="text-sm font-medium text-foreground truncate">{value}</div>
-      </div>
+    <div className="flex items-start justify-between gap-4 text-sm">
+      <span className="inline-flex shrink-0 items-center gap-2 text-muted-foreground"><Icon className="size-3.5" />{label}</span>
+      <span className="min-w-0 break-words text-end text-foreground">{value}</span>
     </div>
   );
 }
 
 const DeploymentProcessing: React.FC<DeploymentProcessingProps> = ({ onRedeploy }) => {
-  const { config, state, terminalRef, onTerminalReady, stopDeployment, respondToPrompt, steps, deploymentStatus } = useDeployment();
+  const { config, state, terminalRef, onTerminalReady, respondToPrompt, steps, deploymentStatus } = useDeployment();
   const { resolvedTheme } = useTheme();
   const { showModal, hideModal } = useModal();
   const { t } = useI18n();
   const dp = t.importProject.deploymentProcessing;
-  const router = useRouter();
   const promptModalRef = React.useRef<string | null>(null);
-  // Holds the Redeploy button's spinner from click until the redeploy resolves
-  // and navigates to the new deployment (or re-enables on failure).
-  const [isRedeploying, setIsRedeploying] = useState(false);
-
   // ── Pipeline prompt modal (port conflict / edge takeover) ──────────────
   useEffect(() => {
     if (!state.pendingPrompt) return;
@@ -145,44 +124,11 @@ const DeploymentProcessing: React.FC<DeploymentProcessingProps> = ({ onRedeploy 
   const hasWarning = deploymentStatus === "ready" && !!state.warningMessage;
 
   return (
-    <div className="min-h-screen bg-background max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="bg-background">
-        <div className="py-5 relative">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-4">
-              <div className="min-w-0">
-                <h1 className="text-xl font-semibold text-foreground">
-                  {deploymentStatus === "cancelled"
-                    ? dp.title.cancelled
-                    : deploymentStatus === "failed"
-                      ? dp.title.failed
-                      : hasWarning
-                        ? dp.title.readyWarnings
-                        : deploymentStatus === "ready"
-                        ? dp.title.successful
-                        : dp.title.deploying}
-                </h1>
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm text-muted-foreground mt-0.5 break-all">
-                    {config.owner}/{config.repo}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {deploymentStatus === "ready" && (
-              <DeploymentConfigurationAction className="self-start sm:shrink-0" />
-            )}
-
-          </div>
-        </div>
-      </div>
-
-      <div className="w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <PageContainer>
+      <DeploymentHeader onRedeploy={onRedeploy} />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_320px]">
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="min-w-0 space-y-5">
             {hasWarning && (
               <div className="rounded-2xl border border-warning-border bg-warning-bg px-4 py-3">
                 <p className="text-sm font-medium text-warning">
@@ -205,177 +151,32 @@ const DeploymentProcessing: React.FC<DeploymentProcessingProps> = ({ onRedeploy 
               />
             )}
 
-            {/* Steps — progress tracker above the terminal. */}
-            <div className="bg-card rounded-2xl border border-border/50 px-7 py-6">
-              <div className="relative">
-                <div className="absolute top-5 start-5 end-5 h-[2px] bg-border/50 z-0">
-                  <div
-                    className="h-full bg-primary transition-all duration-500"
-                    style={{ width: `${(state.currentStepIndex / (steps.length - 1)) * 100}%` }}
-                  />
-                </div>
-                <div className="relative flex justify-between z-10">
-                  {steps.map((step, index) => {
-                    const isCompleted = index < state.currentStepIndex;
-                    const isCurrent =
-                      index === state.currentStepIndex &&
-                      !state.deploymentSuccess &&
-                      !state.deploymentFailed &&
-                      !state.deploymentCanceled;
-                    const hasFailed =
-                      (state.deploymentFailed || state.deploymentCanceled) &&
-                      index === state.currentStepIndex;
-                    const isReady = state.deploymentSuccess && index === steps.length - 1;
-                    return (
-                      <div key={index} className="flex flex-col items-center gap-2.5 z-10">
-                        <div
-                          style={{ boxShadow: "0 0 0 6px var(--th-card-on-page)" }}
-                          className={`rounded-full flex items-center justify-center w-10 h-10 transition-all duration-300 ${
-                            hasFailed
-                              ? "bg-destructive"
-                              : isReady || isCompleted
-                                ? "bg-primary"
-                                : isCurrent
-                                  ? "bg-foreground"
-                                  : // Pending: SOLID fill (the `bg-muted` token is a
-                                    // translucent surface tint, so the connector line
-                                    // showed through). --th-card-on-page is the OPAQUE
-                                    // composite of this card over the page, so the dot
-                                    // and its ring match the card exactly. NOT the modal
-                                    // token --th-card-bg-solid: that is darker than a
-                                    // real card in dark (#060606 vs #0d0d0d).
-                                    "bg-[var(--th-card-on-page)] border border-border"
-                          }`}
-                        >
-                          {hasFailed ? (
-                            <XCircle className="w-5 h-5 text-white" />
-                          ) : isReady || isCompleted ? (
-                            <CheckCircle2 className="w-5 h-5 text-primary-foreground" />
-                          ) : isCurrent ? (
-                            <Loader2 className="w-5 h-5 text-background animate-spin" />
-                          ) : (
-                            generateIcon(step.icon, 18, "var(--th-text-muted)")
-                          )}
-                        </div>
-                        <span
-                          className={`text-sm font-medium ${
-                            hasFailed || isCompleted || isCurrent || isReady
-                              ? "text-foreground"
-                              : "text-muted-foreground"
-                          }`}
-                        >
-                          {step.label}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Build Terminal */}
-            <div className="bg-card rounded-2xl border border-border/50 p-6 mb-20">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  {generateIcon('terminal-58-1658431404.png', 24, 'currentColor')}
-                  <h2 className="text-base font-normal text-foreground">
-                    {state.deploymentSuccess && workloadOf(config.options) !== "static" ? dp.productionLogs : dp.buildTerminal}
-                  </h2>
-                </div>
-                {deploymentStatus === "failed" && (
-                  <span className="text-sm font-normal text-muted-foreground">{dp.seeLogs}</span>
-                )}
-              </div>
-
-              <div className="bg-white dark:bg-black dim:bg-black border border-border/50 rounded-xl overflow-hidden h-[400px]">
-                <BuildTerminal
-                  onReady={handleTerminalReady}
-                  theme={resolvedTheme === "light" ? "light" : "dark"}
-                />
-              </div>
-            </div>
+            <ol aria-label={dp.title.deploying} className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl bg-card p-5">
+              {steps.map((step, index) => {
+                const completed = index < state.currentStepIndex || (state.deploymentSuccess && index === steps.length - 1);
+                const current = index === state.currentStepIndex && !state.deploymentSuccess && !state.deploymentFailed && !state.deploymentCanceled;
+                const failed = (state.deploymentFailed || state.deploymentCanceled) && index === state.currentStepIndex;
+                const tone = failed ? "bg-danger-bg text-danger" : completed ? "bg-success-bg text-success" : current ? "bg-info-bg text-info" : "bg-muted text-muted-foreground";
+                return (
+                  <li key={index} aria-current={current ? "step" : undefined} className="flex items-center gap-2 text-sm">
+                    <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${tone}`} aria-hidden>
+                      {failed ? <XCircle className="size-4" /> : completed ? <CheckCircle2 className="size-4" /> : current ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs tabular-nums">{index + 1}</span>}
+                    </span>
+                    <span className={failed ? "text-danger" : completed || current ? "font-medium text-foreground" : "text-muted-foreground"}>{step.label}</span>
+                  </li>
+                );
+              })}
+            </ol>
+            <DeploymentLogsPanel title={t.importProject.composeDeployment.logsTitle} summary={deploymentStatus === "failed" && <span className="text-xs text-muted-foreground">{dp.seeLogs}</span>}>
+              <BuildTerminal onReady={handleTerminalReady} theme={resolvedTheme === "light" ? "light" : "dark"} />
+            </DeploymentLogsPanel>
           </div>
 
-          {/* Sidebar */}
-          <div className="lg:sticky lg:top-6 h-fit space-y-6">
-            {/* Build phases — per-phase timings; "prepare" is the one-time
-                server provisioning, excluded from the build clock below. */}
-            {/* Deployment details — clean info list */}
+          <div className="h-fit min-w-0 xl:sticky xl:top-6">
             <DeploymentDetails />
-
-            {/* Actions — under the details card */}
-            <div className="bg-card rounded-2xl border border-border/50 p-4">
-              {isRedeploying ? (
-                <button
-                  disabled
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm bg-primary/60 text-primary-foreground cursor-not-allowed"
-                >
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {dp.redeploying}
-                </button>
-              ) : deploymentStatus === "deploying" || deploymentStatus === "building" ? (
-                <button
-                  onClick={stopDeployment}
-                  disabled={state.isStopping}
-                  className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm border ${state.isStopping
-                    ? 'bg-muted text-muted-foreground border-border cursor-not-allowed'
-                    : 'bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/15 hover:border-destructive/30'
-                    }`}
-                >
-                  {state.isStopping ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {dp.stopping}
-                    </>
-                  ) : (
-                    dp.stopDeployment
-                  )}
-                </button>
-              ) : state.cancellationPending ? (
-                <button
-                  disabled
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm bg-muted text-muted-foreground cursor-not-allowed"
-                >
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {dp.stopping}
-                </button>
-              ) : (deploymentStatus === "failed" || deploymentStatus === "cancelled") ? (
-                <div className="space-y-2">
-                  <button
-                    onClick={async () => {
-                      if (isRedeploying) return;
-                      setIsRedeploying(true);
-                      // Keep the spinner up until the redeploy request resolves
-                      // and navigates to the new deployment; re-enable on failure.
-                      try {
-                        await onRedeploy();
-                      } finally {
-                        setIsRedeploying(false);
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-xl transition-all font-medium text-sm hover:bg-primary/90"
-                  >
-                    {dp.redeploy}
-                  </button>
-                  {state.projectId && (
-                    <button
-                      onClick={() => router.push(`/projects/${state.projectId}`)}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium text-sm border border-border bg-card text-foreground hover:bg-muted"
-                    >
-                      {dp.goToProject}
-                    </button>
-                  )}
-                </div>
-              ) : (deploymentStatus === "ready") ? (
-                <DeploymentSuccessActions />
-              ) : null}
-            </div>
-
           </div>
-        </div>
       </div>
-
-    </div>
+    </PageContainer>
   );
 };
 
@@ -389,97 +190,26 @@ const BuildTimeLabel = memo(() => {
 BuildTimeLabel.displayName = "BuildTimeLabel";
 
 const DeploymentDetails = memo(() => {
-  const { state, deploymentStatus, config } = useDeployment();
+  const { state, config } = useDeployment();
   const { baseDomain } = usePlatform();
   const { t } = useI18n();
   const dp = t.importProject.deploymentProcessing;
-  const router = useRouter();
-  const hasWarning = deploymentStatus === "ready" && !!state.warningMessage;
-  const endpointHosts = getPublicEndpointHosts(config.publicEndpoints, baseDomain);
-  const domain = endpointHosts[0] ?? "";
-  const extraEndpointCount = endpointHosts.length > 1 ? endpointHosts.length - 1 : 0;
-
-  const handleEdit = () => {
-    const slug = encodeRepoSlug(config.owner, config.repo);
-    const params = new URLSearchParams({ force: "true" });
-    const projectId = state.projectId || config.projectId;
-
-    if (projectId) {
-      params.set("projectId", projectId);
-    } else if (config.branch) {
-      params.set("branch", config.branch);
-    }
-
-    router.push(`/deploy/${slug}?${params.toString()}`);
-  };
-
-  const statusLabel = deploymentStatus === "cancelled"
-    ? dp.status.cancelled
-    : deploymentStatus === "failed"
-      ? dp.status.failed
-      : hasWarning
-        ? dp.status.readyWarnings
-        : deploymentStatus === "ready"
-          ? dp.status.ready
-          : dp.status.building;
-  const statusColor =
-    deploymentStatus === "failed" || deploymentStatus === "cancelled"
-      ? "text-destructive"
-      : hasWarning
-        ? "text-warning"
-        : deploymentStatus === "ready"
-          ? "text-primary"
-          : "text-foreground";
-  const statusBg =
-    deploymentStatus === "failed" || deploymentStatus === "cancelled"
-      ? "bg-destructive/10"
-      : hasWarning
-        ? "bg-warning-bg"
-        : deploymentStatus === "ready"
-          ? "bg-primary/10"
-          : "bg-muted/60";
-  const statusIcon =
-    deploymentStatus === "failed" || deploymentStatus === "cancelled" ? (
-      <XCircle className="size-4 text-destructive" />
-    ) : hasWarning ? (
-      <CheckCircle2 className="size-4 text-warning" />
-    ) : deploymentStatus === "ready" ? (
-      <CheckCircle2 className="size-4 text-primary" />
-    ) : (
-      <Loader2 className="size-4 text-foreground animate-spin" />
-    );
+  const sites = getDeploymentSites(config, state.serviceStatuses, baseDomain);
+  const domain = sites[0]?.hostname ?? "";
+  const extraEndpointCount = Math.max(0, sites.length - 1);
   const InstanceIcon = config.deployTarget === "cloud" ? Cloud : Server;
   const domainValue = domain
     ? `${domain}${extraEndpointCount > 0 ? ` +${extraEndpointCount}` : ""}`
     : "—";
 
   return (
-    <div className="bg-card rounded-2xl border border-border/50 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-normal text-foreground">{dp.detailsTitle}</h3>
-        {(state.deploymentCanceled || state.deploymentFailed) && (
-          <button onClick={handleEdit} className="flex items-center gap-2 -me-1 cursor-pointer opacity-50 hover:opacity-100 transition-all duration-300">
-            <span className="text-sm text-foreground">{dp.edit}</span>
-            {generateIcon('pen-404-1658238246.png', 18, 'currentColor')}
-          </button>
-        )}
-      </div>
+    <div className="rounded-2xl bg-card p-5">
+      <h3 className="mb-4 text-sm font-normal text-foreground">{dp.detailsTitle}</h3>
       <div className="space-y-4">
-        {/* Status — tinted chip + colored value */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${statusBg}`}>
-            {statusIcon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground">{dp.detailStatus}</p>
-            <p className={`text-sm font-medium truncate ${statusColor}`}>{statusLabel}</p>
-          </div>
-        </div>
         <DetailRow icon={InstanceIcon} label={dp.detailInstance} value={<DeployTargetValue config={config} />} />
         <DetailRow icon={Hammer} label={dp.detailBuild} value={describeBuildStrategy(config, t)} />
         <DetailRow icon={Clock} label={dp.detailBuildTime} value={<BuildTimeLabel />} />
         <DetailRow icon={Layers} label={dp.detailFramework} value={config.framework} />
-        <DetailRow icon={GitBranch} label={dp.detailBranch} value={config.branch} />
         <DetailRow icon={Globe} label={extraEndpointCount > 0 ? dp.detailDomains : dp.detailDomain} value={domainValue} />
       </div>
     </div>

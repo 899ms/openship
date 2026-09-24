@@ -2,9 +2,13 @@
   "title": "Monitoreo",
   "subtitle": "Todo lo que Openship encontró mal en tus proyectos, servidores y dominios.",
   "tabs": {
-    "open": "Abiertos",
+    "open": "Resumen",
     "health": "Salud",
-    "resolved": "Resueltos"
+    "resolved": "Historial"
+  },
+  "monitoringHint": {
+    "description": "Consulta el estado de los servicios y gestiona la supervisión en segundo plano.",
+    "action": "Gestionar supervisión"
   },
   "resolvedNote": "El historial cubre incidentes de contenedores y servidores; las demás comprobaciones informan del estado actual, así que un certificado o despliegue arreglado simplemente deja de aparecer aquí.",
   "rescan": "Volver a analizar",

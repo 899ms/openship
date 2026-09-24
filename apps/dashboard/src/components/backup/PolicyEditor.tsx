@@ -852,7 +852,7 @@ export function PolicyEditor({
         {/* Right: live summary + retention */}
         <div className="min-w-0 space-y-6 border-t border-border/50 bg-muted/[0.15] px-5 py-6 sm:px-6 lg:border-s lg:border-t-0">
           <div className="rounded-xl border border-border/50 bg-card p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
               {w.summaryTitle}
             </p>
             <dl className="space-y-2.5 text-sm">

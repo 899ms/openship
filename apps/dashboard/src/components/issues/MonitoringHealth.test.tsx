@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   scan: vi.fn(),
   toast: vi.fn(),
-  viewIssues: vi.fn(),
   org: "org-one",
 }));
 vi.mock("@/lib/api", () => ({
@@ -59,7 +58,7 @@ const render = () =>
   act(async () => {
     root.render(
       <I18nProvider>
-        <MonitoringHealth onViewIssues={mocks.viewIssues} />
+        <MonitoringHealth />
       </I18nProvider>,
     );
   });
@@ -95,39 +94,41 @@ afterEach(async () => {
 });
 
 describe("automatic monitoring controls", () => {
-  it("only reads the snapshot on entry and enables/pauses the existing job on request", async () => {
+  it("only reads the snapshot on entry and enables/disables the existing job on request", async () => {
     await render();
     expect(mocks.update).not.toHaveBeenCalled();
     expect(mocks.scan).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Requires Openship to remain running");
+    expect(container.textContent).toContain("Keep Openship running");
     expect(container.textContent).toContain("Cloud workloads are excluded");
-    await click("Enable automatic monitoring");
+    const details = container.querySelector("details")!;
+    expect(details.open).toBe(false);
+    await act(async () => details.querySelector("summary")!.click());
+    expect(details.open).toBe(true);
+    await click("Enable monitoring");
     expect(mocks.update).toHaveBeenLastCalledWith("services:health-watch", { enabled: true });
-    expect(button("Pause monitoring")).toBeDefined();
-    expect(container.textContent).toContain("Confirmed failures appear in Issues");
+    expect(button("Disable monitoring")).toBeDefined();
+    expect(container.textContent).toContain("Failures and recovery are tracked in Issues");
     expect(mocks.scan).not.toHaveBeenCalled();
-    await click("View issues");
-    expect(mocks.viewIssues).toHaveBeenCalledOnce();
-    await click("Pause monitoring");
+    await click("Disable monitoring");
     expect(mocks.update).toHaveBeenLastCalledWith("services:health-watch", { enabled: false });
-    expect(button("Enable automatic monitoring")).toBeDefined();
+    expect(button("Enable monitoring")).toBeDefined();
   });
 
   it("shows a failed enable without pretending monitoring is active", async () => {
     mocks.update.mockRejectedValue(new Error("Could not save the schedule"));
     await render();
-    await click("Enable automatic monitoring");
+    await click("Enable monitoring");
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "Could not save the schedule",
     );
-    expect(button("Pause monitoring")).toBeUndefined();
-    expect(button("Enable automatic monitoring")).toBeDefined();
+    expect(button("Disable monitoring")).toBeUndefined();
+    expect(button("Enable monitoring")).toBeDefined();
   });
 
   it("does not offer instance-wide mutations to a reader", async () => {
     snapshot.watcher.canManage = false;
     await render();
-    expect(button("Enable automatic monitoring")).toBeUndefined();
+    expect(button("Enable monitoring")).toBeUndefined();
     expect(container.textContent).toContain("An instance administrator");
     expect(mocks.update).not.toHaveBeenCalled();
   });
@@ -138,7 +139,7 @@ describe("automatic monitoring controls", () => {
     snapshot.watcher.canManage = false;
     await render();
     expect(container.textContent).toContain("Background jobs are disabled");
-    expect(button("Enable automatic monitoring")).toBeUndefined();
+    expect(button("Enable monitoring")).toBeUndefined();
   });
 
   it("refreshes a manual snapshot without enabling automatic monitoring", async () => {
@@ -187,8 +188,8 @@ describe("automatic monitoring controls", () => {
     expect(mocks.update).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Healthy at last check");
     expect(container.textContent).toContain("On demand");
-    expect(button("Enable automatic monitoring")).toBeDefined();
-    expect(button("Pause monitoring")).toBeUndefined();
+    expect(button("Enable monitoring")).toBeDefined();
+    expect(button("Disable monitoring")).toBeUndefined();
   });
 });
 
@@ -231,7 +232,7 @@ describe("cached monitoring reads", () => {
     mocks.org = "org-two";
     snapshot.watching = true;
     await act(async () => resolve(snapshot));
-    expect(button("Pause monitoring")).toBeUndefined();
+    expect(button("Disable monitoring")).toBeUndefined();
     expect(container.textContent).toContain("Loading health snapshot");
   });
 

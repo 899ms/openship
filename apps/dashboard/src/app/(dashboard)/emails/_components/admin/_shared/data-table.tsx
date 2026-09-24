@@ -89,7 +89,7 @@ export function DataTable<T>({
           <div
             key={c.key}
             className={cn(
-              "text-[11px] font-medium text-muted-foreground uppercase tracking-wider",
+              "text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider",
               alignClass(c.align),
               hideBelowClass(c.hideBelow),
             )}

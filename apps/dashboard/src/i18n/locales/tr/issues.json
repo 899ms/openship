@@ -2,9 +2,13 @@
   "title": "İzleme",
   "subtitle": "Openship'in projelerinde, sunucularında ve alan adlarında bulduğu her sorun.",
   "tabs": {
-    "open": "Açık",
+    "open": "Genel bakış",
     "health": "Sağlık",
-    "resolved": "Çözüldü"
+    "resolved": "Geçmiş"
+  },
+  "monitoringHint": {
+    "description": "Servis durumunu görün ve arka plan izlemeyi yönetin.",
+    "action": "İzlemeyi yönet"
   },
   "resolvedNote": "Geçmiş, konteyner ve sunucu olaylarını kapsar — diğer kontroller anlık durumu bildirir, bu yüzden düzelen bir sertifika ya da dağıtım burada görünmeyi bırakır.",
   "rescan": "Yeniden tara",
