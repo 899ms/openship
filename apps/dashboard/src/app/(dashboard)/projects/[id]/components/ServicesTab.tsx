@@ -182,22 +182,20 @@ export const ServicesTab = () => {
       return;
     }
 
-    // Add = launch, via the DECOUPLED per-service path (servicesApi.start →
-    // provision this one container/workspace; NO project redeploy/build/lock,
-    // never touches the main app). If provisioning FAILS, roll the service back
-    // (delete the row) and show the REAL error — never leave a broken,
-    // half-added service behind. Only land on the detail page once it's up.
+    // Start just this service. Cloud Compose reuses its project workspace;
+    // native Cloud services get independent workspaces. Keep the saved service
+    // on failure: a lost response may mean the provider already started it.
     showToast(interpolate(t.projects.services.toastAddedDeploying, { name: data.name }), "success", t.projects.services.toastServiceTitle);
-    const rollback = async (message: string) => {
-      await servicesApi.delete(id, newServiceId).catch(() => {});
+    const showStartFailure = async (message: string) => {
       await fetchData();
       showToast(message, "error", data.name);
+      router.push(`/projects/${id}/services/${newServiceId}`);
     };
     servicesApi
       .start(id, newServiceId)
       .then(async (res: any) => {
         if (res?.success === false) {
-          await rollback(res?.error || t.projects.services.toastDeployFailed);
+          await showStartFailure(res?.error || t.projects.services.toastDeployFailed);
           return;
         }
         showToast(interpolate(t.projects.services.toastStarting, { name: data.name }), "success", t.projects.services.toastServiceTitle);
@@ -205,7 +203,7 @@ export const ServicesTab = () => {
         router.push(`/projects/${id}/services/${newServiceId}`);
       })
       .catch(async (err) => {
-        await rollback(getApiErrorMessage(err, t.projects.services.toastDeployFailed));
+        await showStartFailure(getApiErrorMessage(err, t.projects.services.toastDeployFailed));
       });
   };
 

@@ -411,10 +411,9 @@ export function ServiceDetailPanel({
   const handleDeployStart = async () => {
     setDeploying(true);
     try {
-      // Start = provision + launch this service, using its project Docker
-      // workspace for Compose. No build page, no
-      // one-deploy lock, never touches the main app. servicesApi.start
-      // provisions-if-missing server-side (and enables the service first).
+      // Start provisions this service in its existing runtime layout. Compose
+      // reuses the project Docker workspace, which may need a larger allocation;
+      // native Cloud uses a separate service workspace. No build page is needed.
       const res = await servicesApi.start(projectId, service.id);
       if ((res as any)?.success === false) {
         setDeploying(false);

@@ -103,6 +103,9 @@ export function IssuesView() {
 
   const load = useCallback(
     async (opts: { silent?: boolean } = {}) => {
+      // The Health tab has its own cached snapshot reader. Open-feed counts
+      // continue refreshing in the sidebar; this hidden list needs no polling.
+      if (tab === "health") return;
       if (!opts.silent) setLoading(true);
       try {
         const res = await issuesApi.list(tab === "resolved" ? "resolved" : "open");
@@ -264,7 +267,7 @@ export function IssuesView() {
           <p className="mt-1 text-sm text-muted-foreground/70">{c.subtitle}</p>
         </div>
         {/* Re-scan runs the SCHEDULED checkers early; on cloud they don't exist. */}
-        {selfHosted && (
+        {selfHosted && tab !== "health" && (
           <button
             type="button"
             onClick={handleRescan}
@@ -326,7 +329,7 @@ export function IssuesView() {
       )}
 
       {tab === "health" ? (
-        <MonitoringHealth />
+        <MonitoringHealth onViewIssues={() => setTab("open")} />
       ) : loading ? (
         // Two-column skeleton: the feed on the left, the summary rail on the right,
         // so the fold doesn't reflow when the real data lands.

@@ -327,9 +327,8 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
   initialProjectData,
 }) => {
   const { t } = useI18n();
-  // Mirrors the API's `isServerHost` (= platform target "selfhosted"), which is
-  // exactly the gate on the health-watch job that feeds the Health tab.
-  const { isServerHost } = usePlatform();
+  // Both server and desktop installations can watch local/SSH Docker workloads.
+  const { selfHosted } = usePlatform();
   const [projectData, setProjectData] = useState<BasicProjectData>(
     initialProjectData || {
       id: "",
@@ -997,16 +996,16 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
     const isCloud = projectData.deployTarget === "cloud";
     return all.filter((tab) => {
       // Configuration also owns shared project environment for service projects.
-      // Health is fed by the self-hosted container health watch, so it needs BOTH
-      // halves to be true: the control plane has to be the always-on self-hosted
-      // one that runs the watch job (not SaaS, not desktop), and the workload has
-      // to be a container we can poll (Oblien exposes no stability probe).
-      if (tab.id === "health" && (!isServerHost || isCloud)) return false;
+      // Health is fed by the container health watch, so it needs BOTH
+      // halves to be true: this installation must support local/SSH monitoring,
+      // and the workload must be a container we can inspect. Cloud workloads
+      // are observed by the cloud platform.
+      if (tab.id === "health" && (!selfHosted || isCloud)) return false;
       // Source & Triggers is available on cloud too. Webhook job actions and
       // the self-hosted webhook-domain picker remain gated inside their section.
       return true;
     });
-  }, [t, projectData.deployTarget, isServerHost]);
+  }, [t, projectData.deployTarget, selfHosted]);
 
   const defaultTab = tabs[0].id;
   const [activeTab, setActiveTab] = useState(resolveTab(slug?.[0]) || defaultTab);

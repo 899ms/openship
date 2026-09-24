@@ -80,6 +80,7 @@ import {
   willNotifyFor,
   type WorkloadTarget,
 } from "@repo/platform/engine/modules/monitoring/incident.service";
+import { containerHealthSupported, HEALTH_WATCH_JOB, healthWatchActive } from "./health-watch-policy";
 
 /** Consecutive observations that must agree before a fault opens or escalates. */
 const AGREE_TICKS = 2;
@@ -596,17 +597,10 @@ async function sweepOnce(opts?: HealthSweepOptions): Promise<HealthWatchSummary>
   };
 
   const base = getPlatform().target;
+  if (!containerHealthSupported()) return summary;
   const projects = opts?.organizationId
     ? (await repos.project.listByOrganization(opts.organizationId, { page: 1, perPage: 5000 })).rows
     : await repos.project.listAllForScan();
-  if (projects.length === 0) {
-    if (opts?.currentOnly && opts.organizationId) {
-      for (const [key, row] of HEALTH_SNAPSHOTS) {
-        if (row.organizationId === opts.organizationId) HEALTH_SNAPSHOTS.delete(key);
-      }
-    }
-    return summary;
-  }
 
   const activeIds = projects
     .map((p) => p.activeDeploymentId)
@@ -662,14 +656,12 @@ async function sweepOnce(opts?: HealthSweepOptions): Promise<HealthWatchSummary>
     }
     if (target.kind === "unresolved") {
       unresolved.push(`${project.slug} (${target.reason})`);
-      if (opts?.currentOnly) {
-        unknownCandidates.push({
-          project,
-          dep,
-          meta,
-          serverId: typeof meta.serverId === "string" ? meta.serverId : null,
-        });
-      }
+      unknownCandidates.push({
+        project,
+        dep,
+        meta,
+        serverId: typeof meta.serverId === "string" ? meta.serverId : null,
+      });
       continue;
     }
     // Gate 1: a deploy in flight (or one that only just settled) is recreating
@@ -677,9 +669,7 @@ async function sweepOnce(opts?: HealthSweepOptions): Promise<HealthWatchSummary>
     // we genuinely don't know anything about this project right now.
     const newest = latestDeps.get(project.id) ?? dep;
     if (deploymentIsInFlight(newest) || now - newest.updatedAt.getTime() < DEPLOY_GRACE_MS) {
-      if (opts?.currentOnly) {
-        unknownCandidates.push({ project, dep, meta, serverId: target.serverId });
-      }
+      unknownCandidates.push({ project, dep, meta, serverId: target.serverId });
       continue;
     }
 
@@ -710,10 +700,13 @@ async function sweepOnce(opts?: HealthSweepOptions): Promise<HealthWatchSummary>
   summary.servers = groups.size;
 
   const sweptGroups = [...groups.values()];
+  const unknownInScope = filtered
+    ? unknownCandidates.filter(candidate => filtered.has(watchGroupKey(candidate.serverId, candidate.dep.organizationId)))
+    : unknownCandidates;
   const serviceRows = await repos.service.listByProjects([
     ...new Set([
       ...sweptGroups.flat().map((c) => c.project.id),
-      ...(opts?.currentOnly ? unknownCandidates.map((c) => c.project.id) : []),
+      ...unknownInScope.map((c) => c.project.id),
     ]),
   ]);
 
@@ -736,8 +729,8 @@ async function sweepOnce(opts?: HealthSweepOptions): Promise<HealthWatchSummary>
     currentOnly: opts?.currentOnly === true,
   };
 
-  if (opts?.currentOnly && unknownCandidates.length > 0) {
-    await publishUnknownCandidates(groupContext, unknownCandidates);
+  if (unknownInScope.length > 0) {
+    await publishUnknownCandidates(groupContext, unknownInScope);
   }
 
   await mapWithLimit(sweptGroups, SERVER_CONCURRENCY, async (group) => {
@@ -831,9 +824,17 @@ async function sweepOnce(opts?: HealthSweepOptions): Promise<HealthWatchSummary>
   // accelerator cannot outlive the sweep it accelerates. Imported lazily because
   // the accelerator imports us back; it returns without waiting on connects.
   if (!opts?.currentOnly) {
+    const activeGroups = new Set(allGroupKeys);
+    for (const key of TRACKED_CONTAINERS.keys()) {
+      if (!activeGroups.has(key)) TRACKED_CONTAINERS.delete(key);
+    }
     try {
-      const { renewEventWatchers } = await import("@repo/platform/engine/modules/monitoring/container-events");
-      await renewEventWatchers(allGroupKeys);
+      const { renewEventWatchers, stopAllContainerEventWatchers } = await import("@repo/platform/engine/modules/monitoring/container-events");
+      // A manual rescan must not enable continuous subscriptions. Re-read after
+      // the sweep so a job paused while it was running cannot reopen its streams.
+      const job = await repos.job.findByKey(HEALTH_WATCH_JOB);
+      if (healthWatchActive(job)) await renewEventWatchers(allGroupKeys);
+      else await stopAllContainerEventWatchers();
     } catch (err) {
       summary.errors++;
       console.error(`[health-watch] event watcher renewal failed: ${safeErrorMessage(err)}`);
@@ -866,11 +867,13 @@ async function publishUnknownCandidates(
   candidates: Candidate[],
 ): Promise<void> {
   for (const candidate of candidates) {
-    if (!ctx.countedProjects.has(candidate.project.id)) {
+    if (ctx.currentOnly && !ctx.countedProjects.has(candidate.project.id)) {
       ctx.countedProjects.add(candidate.project.id);
       ctx.summary.projects++;
     }
-    ctx.swept.add(candidate.project.id);
+    // Unknown is not evidence that an incident recovered or retired. Only the
+    // snapshot-only pass may use it to replace that organization's cached rows.
+    if (ctx.currentOnly) ctx.swept.add(candidate.project.id);
     try {
       const workloads = await resolveWorkloads(
         candidate,
@@ -879,7 +882,7 @@ async function publishUnknownCandidates(
       );
       for (const workload of workloads) {
         const key = memoryKey(candidate.project.id, workload.serviceKey);
-        if (!ctx.countedWorkloads.has(key)) {
+        if (ctx.currentOnly && !ctx.countedWorkloads.has(key)) {
           ctx.countedWorkloads.add(key);
           ctx.summary.workloads++;
         }
@@ -941,6 +944,7 @@ async function sweepServerGroup(ctx: GroupContext): Promise<void> {
     // (a project is marked swept before its workloads are evaluated, and a deadline
     // can land between the two).
     for (const candidate of group) ctx.swept.delete(candidate.project.id);
+    await publishUnknownCandidates(ctx, group);
 
     if (ctx.currentOnly) {
       if (handle.listed && reason !== GROUP_DEADLINE_REASON) {
@@ -951,7 +955,6 @@ async function sweepServerGroup(ctx: GroupContext): Promise<void> {
       } else {
         summary.unreachable++;
       }
-      await publishUnknownCandidates(ctx, group);
       return;
     }
 
@@ -1073,7 +1076,7 @@ async function readServerGroup(
     handle.runtime = resolved.runtime;
     const runtime = resolved.runtime;
     if (!runtime.supports("hostContainerQuery") || !runtime.listAllContainers) {
-      if (ctx.currentOnly) await publishUnknownCandidates(ctx, group);
+      await publishUnknownCandidates(ctx, group);
       return;
     }
 
@@ -1168,7 +1171,7 @@ async function readServerGroup(
             // because a box where this is the steady state is a box we are not
             // actually watching.
             summary.indeterminate++;
-            if (ctx.currentOnly) publishHealthSnapshot(candidate, workload, "unknown");
+            if (!handle.abandoned) publishHealthSnapshot(candidate, workload, "unknown");
             return;
           }
         } else {

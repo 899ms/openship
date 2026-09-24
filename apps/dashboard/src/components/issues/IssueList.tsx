@@ -7,7 +7,8 @@ import { IssueGroup } from "./IssueGroup";
 import { SCOPE_ORDER } from "./issueMeta";
 
 /**
- * The feed's body: rows bucketed into their scope's panel, in blast-radius order.
+ * The feed's body: scope panels needing attention precede advisory-only panels.
+ * Within either tier, scope order and the server's row order are preserved.
  *
  * Pure presentation — it takes the list it is given and never fetches or filters.
  * That's what lets the page, the fixture preview and the render test all exercise
@@ -33,7 +34,13 @@ export function IssueList({
       if (list) list.push(issue);
       else out.set(issue.scope, [issue]);
     }
-    return out;
+    const groups = SCOPE_ORDER.filter((scope) => out.has(scope)).map((scope) => ({
+      scope,
+      issues: out.get(scope)!,
+    }));
+    const needsAttention = (group: (typeof groups)[number]) =>
+      group.issues.some((issue) => issue.severity !== "advisory");
+    return groups.sort((a, b) => Number(needsAttention(b)) - Number(needsAttention(a)));
   }, [issues]);
 
   // Advisories wear the amber Updates identity only when nothing louder shares the
@@ -46,11 +53,11 @@ export function IssueList({
 
   return (
     <div className="space-y-4">
-      {SCOPE_ORDER.map((scope) => (
+      {grouped.map(({ scope, issues: rows }) => (
         <IssueGroup
           key={scope}
           scope={scope}
-          issues={grouped.get(scope) ?? []}
+          issues={rows}
           standAlone={advisoriesStandAlone}
           busyId={busyId}
           onResolve={onResolve}

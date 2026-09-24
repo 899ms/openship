@@ -375,6 +375,33 @@ describe("jobs HTTP — fix #2: cross-org write isolation", () => {
     expect(runner.recurring.has("services:health-watch")).toBe(false);
   });
 
+  it("keeps desktop monitoring opt-in and preserves enable/pause choices across reconciliation", async () => {
+    await initPlatform({ target: "desktop", runtime: "bare" });
+    try {
+      const { reconcileJobs } = await import("@repo/platform/engine/modules/jobs/job.service");
+      const instanceAdmin = await seedOwner({ instanceAdmin: true });
+      await reconcileJobs();
+      expect((await repos.job.findByKey("services:health-watch"))?.enabled).toBe(false);
+      expect(runner.recurring.has("services:health-watch")).toBe(false);
+
+      expect((await req(app, "PATCH", "/services%3Ahealth-watch", {
+        auth: instanceAdmin.auth, body: { enabled: true },
+      })).status).toBe(200);
+      await reconcileJobs();
+      expect(runner.recurring.has("services:health-watch")).toBe(true);
+      expect((await repos.job.listAll()).filter(row => row.key === "services:health-watch")).toHaveLength(1);
+
+      expect((await req(app, "PATCH", "/services%3Ahealth-watch", {
+        auth: instanceAdmin.auth, body: { enabled: false },
+      })).status).toBe(200);
+      await reconcileJobs();
+      expect((await repos.job.findByKey("services:health-watch"))?.enabled).toBe(false);
+      expect(runner.recurring.has("services:health-watch")).toBe(false);
+    } finally {
+      await initPlatform({ target: "selfhosted", runtime: "docker" });
+    }
+  });
+
   it("keeps operator settings when concurrent system-job ensures converge", async () => {
     const definition = {
       key: "services:health-watch",
