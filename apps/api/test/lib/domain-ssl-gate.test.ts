@@ -62,10 +62,8 @@ vi.mock("@repo/db", () => ({
 // Resolve the SSL provider through the deployment platform (the primary path) so
 // the spies below ARE the provider manageDomainSsl reaches.
 vi.mock("@repo/platform/engine/lib/deployment-runtime", () => ({
-  // domain-ssl resolves a platform for the SSL provider only, then releases the
-  // docker transport it eagerly bound. A spy, not a no-op stub: dropping that
-  // release leaks a loopback listener per issuance and per renewal, and nothing
-  // else in the suite would notice.
+  // SSL operations own the platform until their provider finishes. Releasing it
+  // afterwards closes the bridge and releases its pooled SSH connection hold.
   disposePlatform: h.disposePlatform,
   resolveDeploymentPlatform: vi.fn(async () => ({
     platform: {
@@ -249,16 +247,7 @@ describe("manageDomainSsl — refuses to issue what it doesn't own", () => {
     expect(res.reason).toBe("not_local");
   });
 
-  /**
-   * Resolving the deploy target's platform to get `.ssl` eagerly binds a
-   * Docker-over-SSH bridge for a remote box, and this path runs per issuance AND per
-   * renewal — so the bridge has to go back before we use the provider, not after.
-   * That ordering is the whole point of `resolveSslOnly`, and it only holds because
-   * `createInfraProvider` builds ssl from the pooled executor and is never handed the
-   * runtime. If someone changes that, certbot starts running through a transport we
-   * already closed; if someone drops the release, the box leaks a listener per cert.
-   */
-  it("releases the resolved platform BEFORE issuing through its provider", async () => {
+  it("releases the resolved platform after issuing through its provider", async () => {
     domain("app.example.com");
 
     const order: string[] = [];
@@ -270,7 +259,7 @@ describe("manageDomainSsl — refuses to issue what it doesn't own", () => {
 
     await manageDomainSsl("app.example.com", { action: "provision" });
 
-    expect(order).toEqual(["dispose", "provision"]);
+    expect(order).toEqual(["provision", "dispose"]);
   });
 });
 

@@ -1079,7 +1079,14 @@ function resolveRuntimeImage(project: Project): string {
     return getRuntimeImage("static", project.packageManager ?? undefined);
   }
 
-  return getRuntimeImage(stackId, project.packageManager ?? undefined);
+  // Follows the buildImage detection stored on the project, so a pinned Ruby
+  // cannot end up with a runtime on a different one (bundler installs into a
+  // version-scoped path, so a mismatch leaves the runtime with no gems).
+  return getRuntimeImage(
+    stackId,
+    project.packageManager ?? undefined,
+    project.buildImage,
+  );
 }
 
 /** Parse productionPaths from DB text (comma-separated) with STACKS fallback. */
@@ -2125,8 +2132,6 @@ export async function cancelBuildSession(
     throw new ForbiddenError("Cannot cancel a deployment that is not in progress");
   }
 
-  const buildSession = await repos.deployment.findBuildSessionByDeploymentId(deploymentId);
-
   // Win the outcome in the database BEFORE cleanup or transport cancellation.
   // This closes the read→cancel race where the worker could publish `ready`
   // while this handler was still collecting its cleanup manifest. The repo
@@ -2153,6 +2158,11 @@ export async function cancelBuildSession(
   // leaves that worker holding the project lease indefinitely.
   requestDeploymentCancellation(dep.id, { keepProvisioned: opts.keepProvisioned });
   sessionManager.cancelPendingPrompt(dep.id);
+
+  // Read after the cancellation transition: a queued worker may have claimed
+  // its lease while this request was waiting. Once cancelled, kickoff cannot
+  // claim it, so this read identifies the actual cleanup owner.
+  const buildSession = await repos.deployment.findBuildSessionByDeploymentId(deploymentId);
 
   // 1. Abort the running build process. Best-effort - if the build already
   //    finished or never started this is a no-op.
@@ -2208,16 +2218,8 @@ export async function cancelBuildSession(
   // activeDeploymentId (the last successful release) is left untouched, so a
   // cancelled redeploy has zero effect on the project's live state.
   if (buildSession) {
-    // Record the time the build actually consumed, not 0. This is metered
-    // (build_session.duration_ms is what the build-minute allowance sums), so a
-    // hardcoded 0 made cancelling a free bypass: burn 14 minutes, cancel, pay
-    // nothing, repeat. Derived from startedAt because the pipeline's own
-    // onCancelled — which does write the real duration — races this write, and
-    // last-write-wins was non-deterministic between the two. Both now agree.
-    const elapsedMs = buildSession.startedAt
-      ? Math.max(0, Date.now() - new Date(buildSession.startedAt).getTime())
-      : 0;
-    await repos.deployment.finishBuildSession(buildSession.id, "cancelled", elapsedMs);
+    // cancelInFlight already persisted status + duration atomically. Cleanup
+    // time and a late worker result must not overwrite that counter.
     // If kickoff never acquired the execution lease, there is no worker whose
     // outer finally can acknowledge completion. Close that session here. The
     // repo predicate refuses this write when startedAt is non-null, so a real

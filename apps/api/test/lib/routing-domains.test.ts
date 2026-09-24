@@ -24,6 +24,7 @@ vi.mock("@repo/platform/engine/lib/provision-lock", () => ({
 }));
 
 import { repos } from "@repo/db";
+import type { SslProvider, SslResult } from "@repo/adapters";
 import {
   buildProjectRouteDomains,
   buildServiceRouteDomain,
@@ -38,6 +39,71 @@ import {
   resolveServiceEndpointHostname,
   withEnsuredDomainRecord,
 } from "@repo/platform/engine/lib/routing-domains";
+
+describe("tracked SSL provisioning progress", () => {
+  beforeEach(() => vi.clearAllMocks());
+  const missing: SslResult = {
+    domain: "app.example.com", verified: false, expiresAt: "", issuer: "", reason: "missing",
+  };
+  const active: SslResult = {
+    domain: missing.domain, verified: true,
+    expiresAt: new Date(Date.now() + 90 * 86_400_000).toISOString(), issuer: "Let's Encrypt",
+  };
+  const create = (onDisk: SslResult = missing, issueError?: Error) => {
+    const lines: string[] = [];
+    const ssl: SslProvider = {
+      verifyCert: vi.fn().mockResolvedValue(onDisk),
+      provisionCert: vi.fn(async () => {
+        lines.push("issuing");
+        if (issueError) throw issueError;
+        return active;
+      }),
+      renewCert: vi.fn(), installCert: vi.fn(),
+    };
+    const rows = new Map([[missing.domain, { id: "dom_1", verified: true, sslStatus: "active" }]]) as Parameters<typeof createTrackedSslProvider>[1];
+    return { ssl, rows, lines, tracked: createTrackedSslProvider(ssl, rows, line => lines.push(line)) };
+  };
+
+  it("explains the HTTP certificate window before issuing, without promising a completion time", async () => {
+    const { tracked, lines } = create();
+    await tracked.provisionCert(missing.domain);
+    expect(lines[0]).toBe(`No HTTPS certificate found for ${missing.domain}; the HTTP route is configured while certificate issuance is in progress.`);
+    expect(lines[1]).toBe("issuing");
+    expect(lines.at(-1)).toBe(`SSL certificate issued for ${missing.domain}.`);
+    expect(lines.join(" ")).not.toMatch(/~1 min|is live on|is now live/);
+  });
+
+  it.each([active, { ...missing, reason: "read_error" as const }, { ...missing, reason: "invalid" as const }, { ...missing, reason: "not_local" as const }])(
+    "does not claim a missing certificate for $reason / verified=$verified", async onDisk => {
+      const { tracked, lines } = create(onDisk);
+      await tracked.provisionCert(missing.domain);
+      expect(lines[0]).toBe(`Requesting SSL certificate for ${missing.domain}…`);
+      expect(lines.join(" ")).not.toContain("HTTP route is configured");
+    },
+  );
+
+  it("does not let a failed read-only progress probe block issuance", async () => {
+    const { ssl, tracked, lines } = create();
+    vi.mocked(ssl.verifyCert).mockRejectedValue(new Error("temporary transport failure"));
+    await expect(tracked.provisionCert(missing.domain)).resolves.toEqual(active);
+    expect(ssl.provisionCert).toHaveBeenCalledOnce();
+    expect(lines.join(" ")).not.toContain("No HTTPS certificate found");
+  });
+
+  it("keeps the current failure reason and does not report HTTPS success after an issuance failure", async () => {
+    const { tracked, lines } = create(missing, new Error("DNS problem: NXDOMAIN"));
+    await tracked.provisionCert(missing.domain);
+    expect(lines.some(line => line.includes("DNS problem: NXDOMAIN"))).toBe(true);
+    expect(lines.join(" ")).not.toContain("SSL certificate issued");
+    expect(repos.domain.recordSslFailure).toHaveBeenCalledWith("dom_1", "DNS problem: NXDOMAIN", true);
+  });
+
+  it("does not add a progress read when no logger is attached", async () => {
+    const { ssl, rows } = create();
+    await createTrackedSslProvider(ssl, rows).provisionCert(missing.domain);
+    expect(ssl.verifyCert).not.toHaveBeenCalled();
+  });
+});
 
 describe("ensureRouteDomainRecord", () => {
   const route = {

@@ -171,7 +171,7 @@ export function DnsTab({
         loadingLabel={t.emailsAdmin.dns.loading}
       >
         {isPrimary && (
-          <span className="text-xs text-muted-foreground/70">{t.emailsAdmin.dns.primary}</span>
+          <span className="text-xs text-muted-foreground">{t.emailsAdmin.dns.primary}</span>
         )}
       </DomainPicker>
 
@@ -348,7 +348,7 @@ function KV({
       </p>
       <p
         className={`font-mono break-all ${
-          muted ? "text-muted-foreground/70 italic" : "text-foreground"
+          muted ? "text-muted-foreground italic" : "text-foreground"
         }`}
       >
         {value}

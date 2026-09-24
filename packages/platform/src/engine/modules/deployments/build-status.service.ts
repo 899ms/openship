@@ -10,6 +10,22 @@ import { terminalMessages } from "./terminal-messages";
 import { maskServicesEnv } from "../../lib/secret-env";
 import { resolveProjectRouteState } from "../domains/project-route.service";
 
+function terminalBuildStatus(status: string): "ready" | "failed" | "cancelled" | undefined {
+  switch (status) {
+    case "ready":
+    case "partial_failure":
+    case "reconciling":
+    case "no_changes":
+      return "ready";
+    case "failed":
+    case "action_required":
+    case "rejected":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+  }
+}
+
 // Read-only build/deploy status projection for the deployment-detail UI + the
 // build-status poll. No side effects; derives progress/phase durations from the
 // in-memory session (live truth) or the persisted build-session logs (terminal).
@@ -19,7 +35,16 @@ export async function getBuildSessionStatus(deploymentId: string) {
   const buildSessionRow = await repos.deployment.findBuildSessionByDeploymentId(deploymentId);
 
   const memSession = sessionManager.getSession(deploymentId);
+  // The deployment outcome wins over a stale session, including when its
+  // best-effort log/timing write failed. Memory still supplies live phases.
+  // A cancellation can commit between the deployment and session reads. Honor
+  // either durable cancellation; an older in-memory phase cannot undo it.
+  const terminalStatus = dep.status === "cancelled" || buildSessionRow?.status === "cancelled"
+    ? "cancelled"
+    : terminalBuildStatus(dep.status) ?? terminalBuildStatus(buildSessionRow?.status ?? "");
+  const effectiveStatus = terminalStatus ?? memSession?.status ?? buildSessionRow?.status ?? dep.status;
   const isActive =
+    terminalStatus === undefined &&
     memSession != null && !["ready", "failed", "cancelled"].includes(memSession.status);
 
   const logEntries = isActive
@@ -49,14 +74,6 @@ export async function getBuildSessionStatus(deploymentId: string) {
     (max, { eventId }) => (max === undefined || eventId > max ? eventId : max),
     undefined,
   );
-
-  // In-memory session is real-time truth (updated every phase transition).
-  // DB build-session row only moves queued → building → final, so it's stale during deploy.
-  const effectiveStatus = memSession
-    ? memSession.status
-    : buildSessionRow
-      ? buildSessionRow.status
-      : dep.status;
 
   // Route state is always resolved live from route rows.
   const snapshot = dep.meta as DeploymentConfigSnapshot | null;
@@ -134,7 +151,7 @@ export async function getBuildSessionStatus(deploymentId: string) {
   // so it can show "finishing cancellation" instead of offering a redeploy that
   // the concurrency guard will (correctly) reject.
   const cancellationPending =
-    dep.status === "cancelled"
+    effectiveStatus === "cancelled"
       ? await repos.deployment.hasLiveBuildExecution(dep.id, project.id).catch(() => true)
       : false;
   const isServiceDeployment =
@@ -236,7 +253,7 @@ export async function getBuildSessionStatus(deploymentId: string) {
     currentStep,
     phaseDurations,
     screenshots: [],
-    buildDurationMs: buildSessionRow?.durationMs ?? null,
+    buildDurationMs: buildSessionRow?.durationMs ?? (terminalStatus ? dep.buildDurationMs : null) ?? null,
     buildStartedAt: buildSessionRow?.startedAt?.toISOString() ?? null,
     // The terminal prose. See `terminalMessages` for why a CANCELLED row's reason
     // is surfaced now, and why the warning keeps its narrower gate. (The warning
@@ -270,7 +287,7 @@ export async function getBuildSessionStatus(deploymentId: string) {
     portCheckSkipped: snapshot?.portCheckSkipped ?? [],
     // A still-open decision prompt (edge 80/443 takeover, port conflict) so a
     // refresh re-shows the modal immediately, before the SSE stream replays it.
-    pendingPrompt: memSession?.currentPrompt ?? null,
+    pendingPrompt: isActive ? memSession?.currentPrompt ?? null : null,
     // The persisted classification (migration 0080). This used to be re-derived
     // as `errorMessage.includes("PORT_IN_USE") || includes("EADDRINUSE")`, which
     // matched none of the coded messages — they all read "Port 3000 is already in

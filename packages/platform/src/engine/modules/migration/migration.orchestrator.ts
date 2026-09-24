@@ -1361,8 +1361,9 @@ class MigrationOrchestratorImpl {
     sourceProjectSlug?: string,
   ): Promise<MoveResult> {
     const rtA = await createServerDockerRuntime(sourceServerId, organizationId);
-    const rtB = sameServer ? null : await createServerDockerRuntime(targetServerId, organizationId);
+    let rtB: typeof rtA | null = null;
     try {
+      if (!sameServer) rtB = await createServerDockerRuntime(targetServerId, organizationId);
       // Quiesce originals for a consistent copy (and to free ports/volumes on
       // a same-server redeploy). Best-effort — a missing container is fine.
       for (const cid of Object.values(scannedContainerIds)) {

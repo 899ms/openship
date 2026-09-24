@@ -37,6 +37,7 @@ import {
   type LogEntry,
   type ContainerStatus,
   type RuntimeAdapter,
+  type RuntimeLogStreamOptions,
 } from "@repo/adapters";
 import { scopedVolumeName, type CommandExecutor } from "@repo/adapters";
 import { isArtifactRef } from "../../lib/container-ref";
@@ -131,11 +132,12 @@ import type {
   TCreateServiceBody,
   TUpdateServiceBody,
   TSetServiceEnvVarsBody,
+  RuntimeLogsInput,
 } from "@repo/contracts";
 import { withLiveProjectRuntimeMutation, withProjectRuntimeLock } from "../../lib/project-runtime-lock";
 import { assertServiceAccess } from "./service-access";
 import { getServiceEnvironment } from "./service-environment-state";
-import { parseOptionalEnvironmentScope } from "@repo/contracts";
+import { OperationError, parseOptionalEnvironmentScope } from "@repo/contracts";
 
 /** Cap how long the HTTP path waits for the SSH edge re-register. The underlying
  *  operation keeps the project runtime lock until it really settles, so a slow
@@ -2017,7 +2019,12 @@ export async function getServiceVolumeSizes(
  * (it's the only key an adopted container with a foreign name has) — see
  * live-state.ts for the resolution order.
  */
-async function resolveServiceContainer(ctx: RequestContext, projectId: string, serviceId: string) {
+async function resolveServiceContainer(
+  ctx: RequestContext,
+  projectId: string,
+  serviceId: string,
+  expectedDeploymentId?: string,
+) {
   const project = await repos.project.findById(projectId);
   assertResourceInOrg(project, "Project", ctx.organizationId, projectId);
   if (project.deletionInProgress) throw new AppError("This project is being deleted.", 409, "PROJECT_DELETING");
@@ -2025,6 +2032,13 @@ async function resolveServiceContainer(ctx: RequestContext, projectId: string, s
 
   const dep = await findActiveDeployment(project);
   if (!dep) throw new Error("Active deployment not found");
+  if (expectedDeploymentId !== undefined && dep.id !== expectedDeploymentId) {
+    throw new OperationError(
+      "This deployment is no longer active. Its build output remains available.",
+      409,
+      "DEPLOYMENT_NOT_ACTIVE",
+    );
+  }
 
   const svc = (await repos.service.listByProject(projectId)).find((s) => s.id === serviceId);
   if (!svc) throw new Error("Service not found");
@@ -2423,8 +2437,9 @@ export async function getServiceRuntimeLogs(
   projectId: string,
   serviceId: string,
   tail?: number,
+  deploymentId?: string,
 ) {
-  const { runtime, containerId } = await resolveServiceContainer(ctx, projectId, serviceId);
+  const { runtime, containerId } = await resolveServiceContainer(ctx, projectId, serviceId, deploymentId);
   try {
     return await runtime.getRuntimeLogs(containerId, tail);
   } finally {
@@ -2482,12 +2497,13 @@ export async function streamServiceRuntimeLogs(
   projectId: string,
   serviceId: string,
   onLog: (entry: LogEntry) => void,
-  opts?: { tail?: number },
+  opts?: RuntimeLogStreamOptions & Pick<RuntimeLogsInput, "deploymentId">,
 ) {
   const { runtime, containerId, serverId } = await resolveServiceContainer(
     ctx,
     projectId,
     serviceId,
+    opts?.deploymentId,
   );
   try {
     const stop = await runtime.streamRuntimeLogs(containerId, onLog, opts);

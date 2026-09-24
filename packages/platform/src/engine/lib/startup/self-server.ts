@@ -39,7 +39,7 @@
  */
 import { env } from "../../config/env";
 import { hostChannelAccount } from "@repo/core";
-import type { HostChannelCode } from "@repo/adapters";
+import type { ServerDetail } from "@repo/contracts";
 import { repos, type Server } from "@repo/db";
 import { boxOwningOrgId } from "../box-org";
 import { isHostControlTarget } from "../host-control";
@@ -184,23 +184,13 @@ async function register(opts?: EnsureLocalServerOptions): Promise<Server | null>
   return row;
 }
 
-/** The container→host channel behind a local row's host-side steps. */
-export interface LocalServerHostChannel {
-  /**
-   * Host ("this machine") operations work.
-   *
-   * Derived from `channel`, NOT from reachability: a `disabled` row is deliberately
-   * REACHABLE (its containers deploy over the Docker socket) while every host-side
-   * step refuses, and those are different questions. This one is "will the host-side
-   * steps of a deploy to this row run".
-   */
-  ok: boolean;
-  /** Which host-channel state, in `hostChannelHealth`'s own vocabulary. */
-  channel: HostChannelCode;
-  /** Operator-facing remedy, when there is one — the same string this row's own
-   *  reachability endpoint returns. One wording, one source. */
-  hint: string | null;
-}
+/**
+ * The container→host annotation uses the public server contract. `ok` describes
+ * host operations, not container reachability: a disabled host channel can still
+ * deploy containers over the Docker socket. The hint comes from the same diagnosis
+ * as the row's reachability endpoint.
+ */
+export type LocalServerHostChannel = NonNullable<ServerDetail["hostChannel"]>;
 
 /**
  * The host-channel state to show ON a server row, or null when the row has no channel

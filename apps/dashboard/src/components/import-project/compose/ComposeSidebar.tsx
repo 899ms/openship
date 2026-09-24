@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, memo } from "react";
+import React, { memo } from "react";
 import { Clock, Cloud, Container, Hammer, Server } from "lucide-react";
 import { useDeployment } from "@/context/DeploymentContext";
 import {
   composeServiceTally,
-  resolveBuildElapsedMs,
   type DeploymentStatus,
 } from "@/context/deployment/types";
+import { useBuildElapsedMs } from "@/context/deployment/useBuildElapsedMs";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import type { Dictionary } from "@/i18n";
 import { describeBuildStrategy } from "../deploy-target-label";
@@ -84,26 +84,7 @@ const ComposeSidebar: React.FC = () => {
   const badge = statusBadge(deploymentStatus, hasWarning, t);
 
   // ── Build timer ──────────────────────────────────────────────────────
-  const [elapsed, setElapsed] = useState<number>(() => {
-    return Math.round(resolveBuildElapsedMs(state) / 1000);
-  });
-
-  useEffect(() => {
-    setElapsed(Math.round(resolveBuildElapsedMs(state) / 1000));
-  }, [
-    state.buildDurationMs,
-    state.buildStartedAt,
-    state.buildRetryCarryMs,
-    state.deploymentSuccess,
-    state.deploymentFailed,
-    state.deploymentCanceled,
-  ]);
-
-  useEffect(() => {
-    if (state.deploymentSuccess || state.deploymentFailed || state.deploymentCanceled) return;
-    const id = setInterval(() => setElapsed((p) => p + 1), 1000);
-    return () => clearInterval(id);
-  }, [state.deploymentSuccess, state.deploymentFailed, state.deploymentCanceled]);
+  const elapsedMs = useBuildElapsedMs(state);
 
   // ── Service counts ───────────────────────────────────────────────────
   // `built` (image done, container not up yet) is counted because during the build
@@ -147,7 +128,7 @@ const ComposeSidebar: React.FC = () => {
         <Row label={sb.rowBuildTime}>
           <span className="inline-flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-            {formatTime(elapsed)}
+            {elapsedMs === null ? "—" : formatTime(Math.round(elapsedMs / 1000))}
           </span>
         </Row>
 
@@ -160,13 +141,19 @@ const ComposeSidebar: React.FC = () => {
             <span className="inline-block">
               {running}/{total} {tally.running}
               {built > 0 && (
-                <span className="ms-1">{interpolate(tally.builtSuffix, { count: String(built) })}</span>
+                <span className="ms-1">
+                  {interpolate(tally.builtSuffix, { count: String(built) })}
+                </span>
               )}
               {building > 0 && (
-                <span className="ms-1">{interpolate(tally.buildingSuffix, { count: String(building) })}</span>
+                <span className="ms-1">
+                  {interpolate(tally.buildingSuffix, { count: String(building) })}
+                </span>
               )}
               {failed > 0 && (
-                <span className="text-destructive ms-1">{interpolate(tally.failedSuffix, { count: String(failed) })}</span>
+                <span className="text-destructive ms-1">
+                  {interpolate(tally.failedSuffix, { count: String(failed) })}
+                </span>
               )}
             </span>
           </Row>

@@ -255,6 +255,26 @@ export function composeServiceTally(services: readonly ServiceDeployStatus[]): {
   return { running, built, building, failed };
 }
 
+/**
+ * Which log feed a compose service tab shows (#667): the live runtime stream of
+ * the deployed container, or the recorded build logs. Runtime wins only when
+ * the deploy finished successfully with no held keep/reject decision AND this
+ * service's container is up — everything else (in-progress deploys, failures,
+ * static services that never run) stays on build history. The Prepare tab is
+ * not a service and never reaches this.
+ */
+export function serviceLogSource(opts: {
+  deploymentStatus: DeploymentStatus;
+  isCurrentDeployment: boolean;
+  decisionPending?: boolean;
+  serviceStatus?: ServiceDeployStatus["status"];
+}): "runtime" | "build" {
+  if (opts.deploymentStatus !== "ready") return "build";
+  if (!opts.isCurrentDeployment) return "build";
+  if (opts.decisionPending) return "build";
+  return opts.serviceStatus === "running" ? "runtime" : "build";
+}
+
 // ─── Build Strategy ──────────────────────────────────────────────────────────
 
 export type { BuildStrategy, RuntimeMode, DeployTarget } from "@repo/core";
@@ -803,8 +823,6 @@ export interface DeploymentState {
   buildDurationMs: number | null;
   /** ISO timestamp when the build started (for elapsed timer). */
   buildStartedAt: string | null;
-  /** Accumulated elapsed ms carried from previous failed/cancelled retries. */
-  buildRetryCarryMs: number;
   /** Active pipeline prompt waiting for user response. */
   pendingPrompt: {
     promptId: string;
@@ -855,30 +873,39 @@ export const INITIAL_STATE: DeploymentState = {
   projectId: null,
   buildDurationMs: null,
   buildStartedAt: null,
-  buildRetryCarryMs: 0,
   pendingPrompt: null,
   serviceStatuses: [],
   phaseDurations: {},
 };
 
-export function resolveBuildElapsedMs(
-  state: Pick<DeploymentState, "buildDurationMs" | "buildStartedAt" | "buildRetryCarryMs">,
-  now = Date.now(),
-): number {
-  const carry = state.buildRetryCarryMs || 0;
+export type BuildTimingState = Pick<
+  DeploymentState,
+  | "buildDurationMs"
+  | "buildStartedAt"
+  | "isDeploying"
+  | "deploymentSuccess"
+  | "deploymentFailed"
+  | "deploymentCanceled"
+>;
 
-  if (typeof state.buildDurationMs === "number") {
-    return Math.max(0, carry + state.buildDurationMs);
+export function isBuildClockRunning(state: BuildTimingState): boolean {
+  return (
+    state.isDeploying &&
+    !state.deploymentSuccess &&
+    !state.deploymentFailed &&
+    !state.deploymentCanceled &&
+    !Number.isFinite(state.buildDurationMs) &&
+    Number.isFinite(Date.parse(state.buildStartedAt ?? ""))
+  );
+}
+
+/** One attempt's duration. A missing terminal measurement is unknown, never
+ *  elapsed time since an old start (which can be days ago on a history page). */
+export function resolveBuildElapsedMs(state: BuildTimingState, now = Date.now()): number | null {
+  if (typeof state.buildDurationMs === "number" && Number.isFinite(state.buildDurationMs)) {
+    return Math.max(0, state.buildDurationMs);
   }
-
-  if (state.buildStartedAt) {
-    const startedAtMs = new Date(state.buildStartedAt).getTime();
-    if (Number.isFinite(startedAtMs)) {
-      return Math.max(0, carry + (now - startedAtMs));
-    }
-  }
-
-  return Math.max(0, carry);
+  return isBuildClockRunning(state) ? Math.max(0, now - Date.parse(state.buildStartedAt!)) : null;
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────

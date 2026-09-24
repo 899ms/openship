@@ -477,11 +477,17 @@ async function resolveSelfHostedDeploymentTarget(
   }
 
   const resolvedServer = await resolveServerExecutor(serverId, organizationId);
-  return {
-    platform: await createPlatformForResolvedServer(resolvedServer, runtimeMode, organizationId),
-    serverId: resolvedServer.id,
-    hostPortTarget: await resolveServerHostPortTarget(resolvedServer),
-  };
+  const resolvedPlatform = await createPlatformForResolvedServer(resolvedServer, runtimeMode, organizationId);
+  try {
+    return {
+      platform: resolvedPlatform,
+      serverId: resolvedServer.id,
+      hostPortTarget: await resolveServerHostPortTarget(resolvedServer),
+    };
+  } catch (error) {
+    disposePlatform(resolvedPlatform);
+    throw error;
+  }
 }
 
 export async function resolveDeploymentPlatform(
@@ -530,6 +536,30 @@ export async function resolveDeploymentPlatform(
 
 // ─── Target → Platform factory ───────────────────────────────────────────────
 
+/** Bind a runtime borrower to its existing transport disposal lifecycle. */
+async function createWithRetainedConnection<T extends Platform | RuntimeAdapter>(
+  executor: CommandExecutor,
+  create: () => Promise<T>,
+): Promise<T> {
+  const releaseConnection = sshManager.retainExecutor(executor);
+  try {
+    const value = await create();
+    const runtime = "runtime" in value ? value.runtime : value as RuntimeAdapter;
+    const dispose = runtime.dispose?.bind(runtime);
+    let disposal: Promise<void> | undefined;
+    // The runtime already owns its transport lifetime. Its pooled connection
+    // must outlive the same work, including slow construction and cleanup.
+    runtime.dispose = () => disposal ??= (async () => {
+      try { await dispose?.(); }
+      finally { releaseConnection(); }
+    })();
+    return value;
+  } catch (error) {
+    releaseConnection();
+    throw error;
+  }
+}
+
 /**
  * Resolve a full Platform for the given deploy target and runtime mode.
  *
@@ -558,7 +588,7 @@ async function createPlatformForResolvedServer(
   // server-host mode): local host executor, host docker socket (DooD),
   // everything on-box.
   if (isLocal) {
-    return createPlatform({
+    return createWithRetainedConnection(executor, () => createPlatform({
       target: "selfhosted",
       runtime: runtimeMode,
       executor,
@@ -569,10 +599,10 @@ async function createPlatformForResolvedServer(
           : undefined,
       nginx: resolveAcmeProviderOptions(),
       provisionLock: createProvisionLock("provision:local"),
-    });
+    }));
   }
 
-  return createPlatform({
+  return createWithRetainedConnection(executor, () => createPlatform({
     target: "selfhosted",
     runtime: runtimeMode,
     executor,
@@ -585,7 +615,7 @@ async function createPlatformForResolvedServer(
     // Serialize provisioning per target server, so concurrent deploys (across
     // projects / single-app + compose) never race apt/openresty/networks/state.
     provisionLock: createProvisionLock(`provision:server:${id}`),
-  });
+  }));
 }
 
 export async function resolveTargetPlatform(
@@ -641,10 +671,11 @@ export async function resolveTargetPlatform(
   // the same pooled host channel below, so a missing row degrades into "no borrow
   // marker", never into a different machine.
   const localRow = await findLocalServer().catch(() => null);
-  return createPlatform({
+  const executor = await acquireLocalHostExecutor(localRow?.id);
+  return createWithRetainedConnection(executor, () => createPlatform({
     target: "selfhosted",
     runtime: runtimeMode,
-    executor: await acquireLocalHostExecutor(localRow?.id),
+    executor,
     // Explicit, and load-bearing now that an executor is injected: `createPlatform`
     // infers "this machine" from `localHost ?? !executor`, so an injected executor
     // would otherwise read as REMOTE — turning off the containerized edge provider
@@ -657,7 +688,7 @@ export async function resolveTargetPlatform(
     // openresty/docker/state. Same lock name as the isLocal row's branch, because
     // it is the same host being provisioned.
     provisionLock: createProvisionLock("provision:local"),
-  });
+  }));
 }
 
 /**
@@ -697,7 +728,9 @@ async function createDockerRuntimeForResolvedServer(
   if (isLocal) {
     return DockerRuntime.create({ transport: "socket", resolveRegistryAuth });
   }
-  return DockerRuntime.create({ ...toDockerSshTransport(ssh!, executor), resolveRegistryAuth });
+  return createWithRetainedConnection(executor, () =>
+    DockerRuntime.create({ ...toDockerSshTransport(ssh!, executor), resolveRegistryAuth }),
+  );
 }
 
 /**
@@ -1062,9 +1095,8 @@ export async function withDeploymentRuntime<T>(
  *
  * Best-effort and non-blocking on purpose: a transport that is already dead can't
  * be closed politely, and a teardown failure must never replace the caller's real
- * error. Optional-called because a bare/cloud runtime has nothing to release —
- * calling it on those is a deliberate no-op, which is what lets every call site
- * dispose unconditionally instead of first asking what kind of runtime it got.
+ * error. Every caller releases unconditionally: even a bare runtime can borrow
+ * a pooled SSH connection. Process-owned runtimes are excluded below.
  */
 export function disposeRuntime(runtime: RuntimeAdapter | null | undefined): void {
   release(runtime);
@@ -1125,12 +1157,9 @@ type PlatformDisposableField = {
  */
 const PLATFORM_DISPOSAL: Record<PlatformDisposableField, "release" | { keep: string }> = {
   runtime: "release",
-  // NEVER released. `executor` is the pooled per-server SSH executor that
-  // `sshManager` owns and that concurrent deploys, routing applies and cert
-  // issuance on that box all share — disposing it here would tear the transport out
-  // from under every one of them, and the three `.ssl`-only sites in domain-ssl.ts
-  // depend on surviving exactly this call. The runtime's Docker-over-SSH bridge is a
-  // per-resolve loopback listener, which is why that one is ours to close.
+  // The pool owns the executor; disposing it directly would disconnect other
+  // borrowers. Runtime disposal releases this platform's hold on that connection,
+  // so all routing/SSL/executor work must finish before disposing the platform.
   executor: { keep: "pooled per server by sshManager; shared with concurrent work" },
 };
 
@@ -1249,14 +1278,18 @@ export async function resolveDeploymentRuntimeForRead(
 
   if (effectiveTarget === "server") {
     const target = await resolveServerExecutor(snapshot.serverId, dep.organizationId);
-    return {
-      runtime: await createDockerRuntimeForResolvedServer(target, dep.organizationId),
-      // The concrete id selected by the same org-scoped resolution that built
-      // the transport; legacy implicit-single-server snapshots must not report
-      // null or resolve a different row on a second lookup.
-      serverId: target.id,
-      hostPortTarget: await resolveServerHostPortTarget(target),
-    };
+    const runtime = await createDockerRuntimeForResolvedServer(target, dep.organizationId);
+    try {
+      return {
+        runtime,
+        // Use the concrete id from the same resolution as the transport.
+        serverId: target.id,
+        hostPortTarget: await resolveServerHostPortTarget(target),
+      };
+    } catch (error) {
+      disposeRuntime(runtime);
+      throw error;
+    }
   }
   if (effectiveTarget === "local") {
     await assertLocalDeploymentAccess(dep.organizationId);

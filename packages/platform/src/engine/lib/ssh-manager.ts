@@ -812,14 +812,11 @@ export class SshConnectionManager {
     executor: CommandExecutor,
     fn: (executor: CommandExecutor) => Promise<T>,
   ): Promise<T> {
-    this.activeCalls.set(executor, (this.activeCalls.get(executor) ?? 0) + 1);
+    const release = this.retainExecutor(executor);
     try {
       return await fn(executor);
     } finally {
-      const remaining = (this.activeCalls.get(executor) ?? 1) - 1;
-      if (remaining) this.activeCalls.set(executor, remaining);
-      else this.activeCalls.delete(executor);
-      this.disposeRetired();
+      release();
     }
   }
 
@@ -1061,6 +1058,29 @@ export class SshConnectionManager {
     if (conn) invalidateEnvironment(conn.executor);
   }
 
+  /** Hold an executor for a command or runtime lifetime. Object identity keeps
+   *  a late release from decrementing a replacement connection's borrowers. */
+  retainExecutor(executor: CommandExecutor): () => void {
+    this.activeCalls.set(executor, (this.activeCalls.get(executor) ?? 0) + 1);
+    for (const [serverId, connection] of this.servers) {
+      if (connection.executor === executor) this.touchIdleTimer(serverId);
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (this.activeCalls.get(executor) ?? 1) - 1;
+      if (remaining) this.activeCalls.set(executor, remaining);
+      else {
+        this.activeCalls.delete(executor);
+        for (const [serverId, connection] of this.servers) {
+          if (connection.executor === executor) this.touchIdleTimer(serverId);
+        }
+      }
+      this.disposeRetired();
+    };
+  }
+
   /**
    * Mark a connection as actively in use by a long-lived operation
    * (streaming, Docker tunnels, etc.).
@@ -1269,10 +1289,12 @@ export class SshConnectionManager {
     const conn = this.servers.get(serverId);
     if (!conn) return;
 
-    // Don't set idle timer while connection is retained by long-lived ops
-    if ((this.retainCounts.get(serverId) ?? 0) > 0) return;
-
     if (conn.idleTimer) clearTimeout(conn.idleTimer);
+    conn.idleTimer = null;
+    // Runtime borrowers and scoped commands share the same executor hold.
+    if ((this.retainCounts.get(serverId) ?? 0) > 0 ||
+        (this.activeCalls.get(conn.executor) ?? 0) > 0) return;
+
     conn.idleTimer = setTimeout(() => {
       debugSsh(`idle-timeout:drop-connection server=${serverId}`);
       this.dropServer(serverId);
@@ -1298,7 +1320,8 @@ export class SshConnectionManager {
     const conn = this.servers.get(serverId);
     if (!conn) return;
 
-    if (!force && (this.retainCounts.get(serverId) ?? 0) > 0) {
+    if (!force && ((this.retainCounts.get(serverId) ?? 0) > 0 ||
+        (this.activeCalls.get(conn.executor) ?? 0) > 0)) {
       debugSsh(`drop-server:skip-retained server=${serverId}`);
       return;
     }

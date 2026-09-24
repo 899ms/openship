@@ -127,7 +127,11 @@ export const AgentExecResultSchema = Type.Object({
 });
 export type AgentExecResult = Static<typeof AgentExecResultSchema>;
 export const RuntimeLogsInputSchema = Type.Object(
-  { tail: Type.Optional(Type.Integer({ minimum: 0, maximum: 100_000 })) },
+  {
+    tail: Type.Optional(Type.Integer({ minimum: 0, maximum: 100_000 })),
+    /** Refuse to attach a historical deployment view to a newer live service. */
+    deploymentId: Type.Optional(Type.String({ minLength: 1 })),
+  },
   { additionalProperties: false },
 );
 export type RuntimeLogsInput = Static<typeof RuntimeLogsInputSchema>;

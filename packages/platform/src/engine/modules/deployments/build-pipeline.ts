@@ -155,7 +155,7 @@ import {
   registerDeploymentExecution,
   raceDeploymentCancellation,
   deploymentCancellationKeepsProvisioned,
-  releaseDeploymentExecution,
+  completeDeploymentExecution,
   throwIfDeploymentCancelled,
 } from "./deployment-cancellation";
 
@@ -300,12 +300,7 @@ export async function kickoffBuild(project: Project, dep: Deployment): Promise<s
       // deliberately later than every lifecycle hook, cleanup, transport
       // disposal, and fallback error write. A `cancelled` status by itself does
       // not prove the deploy-phase worker stopped touching the host.
-      await repos.deployment
-        .acknowledgeBuildExecutionFinished(buildSession.id)
-        .catch((err) =>
-          console.error(`[DEPLOY] Failed to acknowledge worker completion for ${dep.id}:`, err),
-        );
-      releaseDeploymentExecution(dep.id, cancellationSignal);
+      await completeDeploymentExecution(dep.id, buildSession.id, cancellationSignal);
       // A limit can change while this worker is finishing, or after it fails.
       // Reclamation starts only after acknowledgement, under the same lock as
       // new deployment admission and teardown; either may win and defer it.

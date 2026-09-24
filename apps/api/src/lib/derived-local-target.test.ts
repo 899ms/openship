@@ -47,7 +47,7 @@ vi.mock("@repo/adapters", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createPlatform: async (config: Record<string, unknown>) => {
     h.configs.push(config);
-    return { target: "selfhosted" };
+    return { target: "selfhosted", runtime: { name: config.runtime } };
   },
   createHostExecutor: () => h.hostExecutor(),
   DockerRuntime: { create: h.docker },
@@ -94,7 +94,11 @@ vi.mock("@repo/platform/engine/lib/box-org", () => ({
 }));
 
 vi.mock("@repo/platform/engine/lib/ssh-manager", () => ({
-  sshManager: { acquire: h.acquire, acquireHostChannel: h.acquireHostChannel },
+  sshManager: {
+    acquire: h.acquire,
+    acquireHostChannel: h.acquireHostChannel,
+    retainExecutor: () => () => {},
+  },
   buildSshConfig: async () => ({ host: "127.0.0.1", port: 22, username: "root" }),
 }));
 

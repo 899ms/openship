@@ -104,6 +104,42 @@ export function releaseDeploymentExecution(deploymentId: string, signal: AbortSi
   drainWaiters.clear();
 }
 
+/** Called only after the worker's host operations and cleanup have returned.
+ * Keep ownership until its durable completion write succeeds: dropping it on a
+ * database error strands the lease and blocks redeployment until a restart.
+ * Retries only repeat the idempotent acknowledgement, never host operations. */
+export async function completeDeploymentExecution(
+  deploymentId: string,
+  buildSessionId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const execution = executions.get(deploymentId);
+  if (execution?.controller.signal !== signal) return;
+  if (execution.poll) clearInterval(execution.poll);
+  execution.poll = null;
+
+  let retryMs = 1_000;
+  while (executions.get(deploymentId) === execution) {
+    try {
+      await repos.deployment.acknowledgeBuildExecutionFinished(buildSessionId);
+      releaseDeploymentExecution(deploymentId, signal);
+      return;
+    } catch (err) {
+      console.error(
+        `[DEPLOY] Failed to acknowledge worker completion for ${deploymentId}; retrying in ${retryMs / 1_000}s:`,
+        err,
+      );
+    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, retryMs);
+      // A self-hosted process restart already recovers its abandoned leases.
+      // Pending database recovery must not keep that process alive by itself.
+      (timer as unknown as { unref?: () => void }).unref?.();
+    });
+    retryMs = Math.min(retryMs * 2, 30_000);
+  }
+}
+
 export function deploymentCancellationRequested(signal?: AbortSignal): boolean {
   return signal?.aborted === true;
 }

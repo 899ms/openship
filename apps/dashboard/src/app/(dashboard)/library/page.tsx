@@ -20,8 +20,9 @@ import { HelpMenu } from "@/components/HelpMenu";
 import { ServerMigrationWizard } from "@/components/migration/ServerMigrationWizard";
 import { useI18n } from "@/components/i18n-provider";
 import { useToast } from "@/context/ToastContext";
+import { AppCatalog } from "@/components/apps/AppCatalog";
 
-type Tab = "folder" | "repositories" | "url" | "template" | "server";
+type Tab = "folder" | "repositories" | "url" | "template" | "server" | "apps";
 
 /** One-time gh-CLI repo-read consent flag (per browser — desktop is single-user). */
 const GH_CLI_CONSENT_KEY = "openship.gh-cli-consent";
@@ -90,6 +91,7 @@ export default function LibraryPage() {
   //   - SaaS → upload the folder to a cloud build workspace (stack picked up
   //     front so we know which image to provision).
   const tabs: TabItem[] = [
+    { key: "apps", label: t.dashboard.pages.apps.title, icon: Boxes },
     { key: "folder", label: t.library.page.tabs.folder, icon: FolderUp },
     { key: "repositories", label: t.library.page.tabs.github, icon: Github },
     { key: "url", label: t.library.page.tabs.url, icon: Link2 },
@@ -110,13 +112,13 @@ export default function LibraryPage() {
           <h1 className="text-2xl font-medium text-foreground/80" style={{ letterSpacing: "-0.2px" }}>
             {t.library.page.title}
           </h1>
-          <p className="text-sm text-muted-foreground/70 mt-1">{t.library.page.subtitle}</p>
+          <p className="text-sm text-muted-foreground mt-1">{t.library.page.subtitle}</p>
         </div>
         <HelpMenu className="shrink-0" />
       </div>
 
       {/* ── Tabs ─────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 mb-6">
+      <div className="flex flex-wrap items-center gap-1 mb-6">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -140,7 +142,9 @@ export default function LibraryPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
         {/* ── LEFT COLUMN ────────────────────────────────────────── */}
         <div className="space-y-6 min-w-0">
-          {activeTab === "server" ? (
+          {activeTab === "apps" ? (
+            <AppCatalog />
+          ) : activeTab === "server" ? (
             // Clean centered empty state, matching the GitHub tab's ConnectPrompt
             // (bg-card + illustration-style icon + heading/desc + primary button).
             <div className="bg-card rounded-2xl border border-border/50">

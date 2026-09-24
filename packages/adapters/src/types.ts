@@ -723,6 +723,13 @@ export interface SslResult {
 
 export type LogCallback = (entry: LogEntry) => void;
 
+export interface RuntimeLogStreamOptions {
+  tail?: number;
+  /** Called once when the source closes without an explicit cleanup.
+   * An error means the transport failed; consumers may reconnect. */
+  onEnd?: (error?: Error) => void;
+}
+
 // ─── SSH configuration ──────────────────────────────────────────────────────
 
 /**

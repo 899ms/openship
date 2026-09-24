@@ -27,6 +27,7 @@ import {
   categoryServesFiles,
   getProjectType,
   getBuildImage,
+  parseRubyVersion,
   LANGUAGE_MANIFEST_FILES,
   collectDependencies,
   detectPort as detectPortFromLanguages,
@@ -199,6 +200,19 @@ function hasBackendMarker(fileSet: Set<string>): boolean {
     fileSet.has("gemfile") || // Rails (Ruby)
     fileSet.has("mix.exs") // Phoenix (Elixir)
   );
+}
+
+/** Prefer the project's explicit `.ruby-version`,
+ *  then the lockfile stanza, then the Gemfile directive. First hit wins;
+ *  undefined leaves the language default in place. */
+function detectRubyVersion(fileContents: Record<string, string>): string | undefined {
+  for (const name of [".ruby-version", "gemfile.lock", "gemfile"]) {
+    const content = fileContents[name];
+    if (!content) continue;
+    const version = parseRubyVersion(name, content);
+    if (version) return version;
+  }
+  return undefined;
 }
 
 /** True if any of the stack's deps appears in the dep map. */
@@ -553,7 +567,13 @@ export function detectStack(
 
   // Fold metadata (vercel.json / render.yaml / …) over heuristic detection so a
   // repo that already tells a PaaS how to build/run it deploys the same way here.
-  return applyMetadataOverrides(result, parseDeploymentMetadata(fc));
+  const resolved = applyMetadataOverrides(result, parseDeploymentMetadata(fc));
+  // Metadata can reclassify the framework. Resolve the pin after the final
+  // classification so it cannot be discarded by a framework override.
+  return {
+    ...resolved,
+    buildImage: getBuildImage(resolved.stack, resolved.packageManager, detectRubyVersion(fc)),
+  };
 }
 
 // ─── Metadata overrides (vercel.json / render.yaml / …) ──────────────────────

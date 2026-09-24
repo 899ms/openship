@@ -126,7 +126,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
   );
   const collapsed = !mobileOpen && desktopCollapsed;
   const [loggingOut, setLoggingOut] = useState(false);
-  const [navCounts, setNavCounts] = useState<{ projects: number; apps: number } | null>(null);
+  const [navCounts, setNavCounts] = useState<number | null>(null);
   const [navCountsRevision, setNavCountsRevision] = useState(getSidebarNavCountsRevision);
 
   useEffect(
@@ -154,9 +154,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
     // Match Home's Needs attention card; available updates are advisories.
     if (key === "issues")
       return issueCounts ? issueCounts.outage + issueCounts.actionRequired : null;
-    if (!navCounts) return null;
-    if (key === "projects") return navCounts.projects;
-    if (key === "apps") return navCounts.apps;
+    if (key === "projects") return navCounts;
     return null;
   };
 
@@ -209,10 +207,9 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
     };
   }, [user?.id]);
 
-  // Nav counts — Projects & Apps only, from the same `projects/home` payload
-  // both pages load. Apps are projects with `isApp` (catalog installs); the
-  // Projects nav counts the REST (real projects), exactly mirroring what each
-  // page renders — apps live only under Apps, never double-counted.
+  // Nav counts — total projects from the same `projects/home` payload
+  // both pages load. Apps are included in this count (they're projects with
+  // `isApp`), so the Projects nav count shows the real total.
   //
   // Gated on `orgsLoaded`: the count fetch must run under the resolved active
   // org (the org effect above sets `setActiveOrganizationId` a round-trip
@@ -228,16 +225,14 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
         // Distinct by id — the payload merges local + cloud, which can list the
         // same project twice; a dupe must not inflate the tally.
         const seen = new Set<string>();
-        let projects = 0;
-        let apps = 0;
+        let count = 0;
         for (const p of res.projects) {
           const id = p?.id;
           if (id && seen.has(id)) continue;
           if (id) seen.add(id);
-          if (p?.isApp) apps += 1;
-          else projects += 1;
+          count += 1;
         }
-        setNavCounts({ projects, apps });
+        setNavCounts(count);
       })
       .catch(() => {
         /* counts are optional chrome — silent on failure */
@@ -369,7 +364,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
           {navSections.map(({ section, items }, si) => (
             <div key={section ?? si} className={si > 0 ? "mt-5" : undefined}>
               {!collapsed && section && (
-                <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
                   {sectionLabel(section)}
                 </p>
               )}
@@ -453,7 +448,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
       <div className="px-3 pb-4 pt-1">
         <div className="mx-2 mb-3 h-px bg-border/60" />
         {!collapsed && (
-          <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+          <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
             {t.dashboard.nav.sections.account}
           </p>
         )}
@@ -504,7 +499,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
               >
                 {/* Heading */}
                 <div className="px-3 pt-3 pb-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
                     {t.chrome.sidebar.switchOrganization}
                   </p>
                 </div>
@@ -575,7 +570,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
                       </p>
                       {cloudBadge?.email && (
                         <p
-                          className="truncate text-[10px] leading-tight text-muted-foreground/70"
+                          className="truncate text-[10px] leading-tight text-muted-foreground"
                           title={interpolate(t.chrome.sidebar.linkedToCloud, {
                             email: cloudBadge.email,
                           })}
@@ -627,7 +622,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
                     </p>
                     {cloudBadge?.email && (
                       <p
-                        className="truncate text-[11px] leading-tight text-muted-foreground/70"
+                        className="truncate text-[11px] leading-tight text-muted-foreground"
                         title={interpolate(t.chrome.sidebar.linkedToCloud, {
                           email: cloudBadge.email,
                         })}

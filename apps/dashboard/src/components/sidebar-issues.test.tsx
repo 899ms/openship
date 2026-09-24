@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   summary: vi.fn(),
   feed: vi.fn(),
   organization: vi.fn(),
+  projects: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/monitoring",
@@ -49,7 +50,7 @@ vi.mock("@/lib/api/client", async (original) => {
       get: (path: string) => {
         if (path === "issues/summary") return mocks.summary();
         if (path === "issues" || path === "issues?status=resolved") return mocks.feed(path);
-        if (path === "projects/home") return Promise.resolve({ success: true, projects: [] });
+        if (path === "projects/home") return mocks.projects();
         throw new Error(`Unexpected GET ${path}`);
       },
     },
@@ -65,6 +66,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mocks.organization.mockResolvedValue({ data: { id: "org-a" } });
   mocks.summary.mockResolvedValue({ data: counts });
+  mocks.projects.mockResolvedValue({ success: true, projects: [] });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -90,8 +92,13 @@ const monitoring = () => host.querySelector<HTMLAnchorElement>('a[href="/monitor
 const badge = () => monitoring().querySelector(".tabular-nums");
 
 describe("Monitoring sidebar count", () => {
-  it("shows the same actionable issue count as Home, excluding updates", async () => {
+  it("keeps the distinct project total alongside actionable issues, excluding updates", async () => {
+    mocks.projects.mockResolvedValue({
+      success: true,
+      projects: [{ id: "project-a" }, { id: "project-b", isApp: true }, { id: "project-a" }],
+    });
     await render();
+    expect(host.querySelector('a[href="/projects"] .tabular-nums')?.textContent).toBe("2");
     expect(badge()?.textContent).toBe("3");
     expect(monitoring().textContent).toContain(baseDictionary.dashboard.nav.issues);
     const collapse = host.querySelector<HTMLButtonElement>(

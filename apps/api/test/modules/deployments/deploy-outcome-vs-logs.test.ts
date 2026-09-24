@@ -190,6 +190,7 @@ describe("lifecycle: a rejected log payload cannot invert the outcome", () => {
     const ctx = ctxFor();
 
     await expect(onSuccess(ctx, { containerId: "c1", durationMs: 1234 })).resolves.toBeUndefined();
+    expect(h.statusWrites[0]).toMatchObject({ status: "ready", extra: { buildDurationMs: 1234 } });
 
     expect(statusPairs()).toEqual(["dep_1:ready"]);
     // The terminal SSE event is what closes the stream — skipping it is what
@@ -205,6 +206,7 @@ describe("lifecycle: a rejected log payload cannot invert the outcome", () => {
     const ctx = ctxFor();
 
     await expect(onFailure(ctx, "build blew up", 99)).resolves.toBeUndefined();
+    expect(h.statusWrites[0]).toMatchObject({ status: "failed", extra: { buildDurationMs: 99 } });
 
     expect(statusPairs()).toEqual(["dep_1:failed"]);
     expect(h.sessionStatuses.map((s) => s.status)).toEqual(["failed"]);
@@ -463,9 +465,11 @@ describe("repo: finishBuildSession sheds the payload, never the status", () => {
     ).resolves.toBeUndefined();
 
     expect(writes).toHaveLength(2);
+    // The record update (including its cancellation guard) is identical on
+    // every salvage attempt. Actual SQL outcomes are covered in the DB suite.
+    expect(writes[1].status).toEqual(writes[0].status);
+    expect(writes[1].durationMs).toEqual(writes[0].durationMs);
     for (const w of writes) {
-      expect(w.status).toBe("ready");
-      expect(w.durationMs).toBe(4321);
       // Terminal outcome is not worker completion. The pipeline's outermost
       // finally stamps finishedAt only after all host-writing hooks return, so
       // project teardown cannot race detached deploy work.
@@ -483,7 +487,7 @@ describe("repo: finishBuildSession sheds the payload, never the status", () => {
     await expect(repo.finishBuildSession("bld_1", "ready", 1, poisoned)).resolves.toBeUndefined();
 
     expect(writes).toHaveLength(2);
-    expect(writes[1].status).toBe("ready");
+    expect(writes[1].status).toEqual(writes[0].status);
     expect(jsonbRejection(writes[1].logs)).toBeNull();
   });
 
@@ -502,7 +506,6 @@ describe("repo: finishBuildSession sheds the payload, never the status", () => {
     // Absent from the SET clause — not merely set to undefined. A caller with no
     // payload has nothing to shed, so its error must propagate untouched.
     expect("logs" in writes[0]).toBe(false);
-    expect(writes[0].status).toBe("cancelled");
   });
 });
 
