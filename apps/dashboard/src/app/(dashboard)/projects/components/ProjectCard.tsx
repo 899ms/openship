@@ -23,6 +23,7 @@ import { useModal } from "@/context/ModalContext";
 import { useToast } from "@/context/ToastContext";
 import { projectsApi, getApiErrorMessage } from "@/lib/api";
 import { timeAgo } from "@/lib/time";
+import { useImageFallback } from "@/hooks/useImageFallback";
 import type { Dictionary } from "@/i18n";
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
@@ -75,7 +76,7 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
   const [menuOpen, setMenuOpen] = useState(false);
   const status = getProjectStatus(project);
   const fw = getFrameworkConfig(project.framework);
-  const [faviconError, setFaviconError] = useState(false);
+  const favicon = useImageFallback(project.favicon);
 
   const isLocal = !!project.localPath;
   const hasRepo = !!(project.gitOwner && project.gitRepo);
@@ -85,7 +86,6 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
     project.hasMultipleServices === true || Number(project.serviceCount ?? 0) > 1;
 
   const hosting = getHostingLabel(project.deployTarget, project.serverName, t);
-  const hasFavicon = !!project.favicon && !faviconError;
   const appTemplateId = (project as { appTemplateId?: string }).appTemplateId;
   // A not-yet-deployed app reopens the install wizard (adopting its draft);
   // a deployed app opens as a normal project.
@@ -120,7 +120,7 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
   };
 
   return (
-    <div className="relative flex items-center gap-4 px-5 py-3.5 hover:bg-muted/40 transition-colors group">
+    <div className="relative grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-4 py-3.5 hover:bg-muted/40 transition-colors group sm:flex sm:gap-4 sm:px-5">
       {/* Stretched-link overlay: the whole row is a real anchor (cmd/middle-click
           → open in new tab) without nesting a <button> inside an <a>. It sits
           above the static content (captures row clicks) but below the draft menu
@@ -132,12 +132,13 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
       <div className="w-10 h-10 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors overflow-hidden">
         {preferAppLogo && project.isApp ? (
           <AppLogo appId={appTemplateId} className="w-6 h-6 object-contain" />
-        ) : hasFavicon ? (
+        ) : favicon.showImage ? (
           <img
+            ref={favicon.ref}
             src={project.favicon!}
             alt=""
             className="w-6 h-6 object-contain"
-            onError={() => setFaviconError(true)}
+            onError={favicon.onError}
           />
         ) : (
           fw.icon("var(--foreground)")
@@ -145,8 +146,8 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
       </div>
 
       {/* Name + domain */}
-      <div className="min-w-0 flex-shrink-0 w-44 lg:w-56 text-start">
-        <div className="flex items-center gap-1.5">
+      <div className="min-w-0 sm:w-44 lg:w-56 text-start">
+        <div className="flex flex-wrap items-center gap-1.5">
           <p className="text-sm font-medium text-foreground truncate">{project.name}</p>
           {project.activeVersion != null && (
             <span
@@ -168,22 +169,22 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
       </div>
 
       {/* Meta badges */}
-      <div className="flex-1 min-w-0 flex items-center gap-3 overflow-hidden">
+      <div className="hidden flex-1 min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:flex">
         {/* Stack */}
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/60 text-xs text-muted-foreground shrink-0">
-          {fw.name}
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/60 text-xs text-muted-foreground" title={fw.name}>
+          <span className="truncate">{fw.name}</span>
         </span>
 
         {/* App marker — catalog-installed (Convex, webmail, …) */}
         {project.isApp && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-primary/10 text-xs font-medium text-primary shrink-0">
-            {t.projects.card.appBadge}
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 px-2 py-0.5 rounded-md bg-primary/10 text-xs font-medium text-primary">
+            <span className="truncate">{t.projects.card.appBadge}</span>
           </span>
         )}
 
         {/* Hosting target */}
         {hosting && (
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs text-muted-foreground" title={hosting.label}>
             {hosting.icon}
             <span className="truncate max-w-[120px]">{hosting.label}</span>
           </span>
@@ -191,12 +192,12 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
 
         {/* Source */}
         {isLocal ? (
-          <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+          <span className="hidden md:inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs text-muted-foreground">
             <FolderOpen className="size-3.5" />
             <span className="truncate max-w-[140px]">{t.projects.card.sourceLocal}</span>
           </span>
         ) : repoSlug ? (
-          <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+          <span className="hidden md:inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs text-muted-foreground" title={repoSlug}>
             <GitBranch className="size-3.5" />
             <span className="truncate max-w-[140px]">{project.gitRepo}</span>
           </span>
@@ -227,7 +228,7 @@ const ProjectCard: React.FC<Props> = ({ project, preferAppLogo, updateAvailable,
       </div>
 
       {/* Right side */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="col-start-2 flex min-w-0 max-w-full items-center gap-3 sm:shrink-0">
         {/* Time */}
         <span className="hidden lg:block text-xs text-muted-foreground">
           {timeAgo(project.updatedAt || project.createdAt, t)}

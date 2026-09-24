@@ -193,7 +193,7 @@ function InstallProgressPanel({
 function ConfigSummaryCard({ title, rows }: { title: string; rows: DeploySummaryRow[] }) {
   return (
     <div className="rounded-2xl border border-border/50 bg-card p-5">
-      <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+      <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
         {title}
       </h3>
       <dl className="mt-3 space-y-2.5">
@@ -285,7 +285,7 @@ function TerminalLogs({
         className="max-h-72 overflow-auto p-3.5 font-mono text-[11.5px] leading-relaxed"
       >
         {lines.length === 0 ? (
-          <span className="text-muted-foreground/70">{emptyLabel}</span>
+          <span className="text-muted-foreground">{emptyLabel}</span>
         ) : (
           lines.map((l, i) => (
             <div key={i} className="flex gap-3">
@@ -569,7 +569,7 @@ export function CleanDeployProgressCard({
                 </div>
                 <h2 className="mt-4 text-base font-semibold text-foreground">{w.progressLive}</h2>
                 {liveHost && (
-                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground/70">{liveHost}</p>
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{liveHost}</p>
                 )}
                 <div className="mt-5 flex flex-col gap-2 sm:flex-row">
                   {liveUrl && (
@@ -977,7 +977,7 @@ export function CleanDeployProgressCard({
           </div>
           <h2 className="mt-4 text-base font-semibold text-foreground">{w.progressLive}</h2>
           {liveHost && (
-            <p className="mt-1 break-all font-mono text-xs text-muted-foreground/70">{liveHost}</p>
+            <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{liveHost}</p>
           )}
         </div>
       )
@@ -1090,7 +1090,7 @@ export function CleanDeployProgressCard({
                   <AppLogo appId={appId} className="size-5 object-contain" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     {w.appEyebrow}
                   </p>
                   <h3 className="truncate text-base font-semibold text-foreground">{title}</h3>
@@ -1109,7 +1109,7 @@ export function CleanDeployProgressCard({
                 )}
               </div>
               {phase === "done" && liveHost && (
-                <p className="mt-3 break-all font-mono text-xs text-muted-foreground/70">{liveHost}</p>
+                <p className="mt-3 break-all font-mono text-xs text-muted-foreground">{liveHost}</p>
               )}
               {actions && <div className="mt-4 space-y-2">{actions}</div>}
             </div>

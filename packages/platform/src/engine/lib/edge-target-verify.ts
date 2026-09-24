@@ -94,116 +94,121 @@ export async function ensureTargetVerified(
   const host = hostOf(canonical);
   if (!host) return { verified: false, reason: `"${canonical}" is not a usable target address` };
 
-  const routing = opts.routing ?? (await resolveRoutingFor(organizationId, opts.serverId));
-  if (!routing?.serveEdgeChallenge) {
-    return {
-      verified: false,
-      reason:
-        `this box can't serve Openship Cloud's target challenge — its routing provider ` +
-        `has no HTTP surface, so ${host} cannot be proven from here`,
-    };
-  }
-
-  const client = cloudClient({ organizationId });
-
-  // 1. Ask for a challenge. This RESETS the token upstream, which is exactly why the
-  //    previous one is retired rather than dropped below.
-  let challenge: Awaited<ReturnType<typeof client.edgeProxy.requestVerification>>;
+  const resolved = opts.routing ? null : await resolveRoutingPlatform(organizationId, opts.serverId);
+  const routing = opts.routing ?? resolved?.routing;
   try {
-    challenge = await client.edgeProxy.requestVerification(canonical);
-  } catch (err) {
-    return { verified: false, reason: safeErrorMessage(err) };
-  }
-  if (!challenge) {
-    return { verified: false, reason: "Openship Cloud is not connected for this organization" };
-  }
+    if (!routing?.serveEdgeChallenge) {
+      return {
+        verified: false,
+        reason:
+          `this box can't serve Openship Cloud's target challenge — its routing provider ` +
+          `has no HTTP surface, so ${host} cannot be proven from here`,
+      };
+    }
 
-  const row = await repos.edgeTargetVerification.recordChallenge({
-    organizationId,
-    target: canonical,
-    host,
-    ...(opts.serverId ? { serverId: opts.serverId } : {}),
-    verificationId: challenge.id,
-    token: challenge.token,
-    challengePath: challenge.path,
-    status: "pending",
-  });
+    const client = cloudClient({ organizationId });
 
-  // 2. Serve it — the current token AND every retired one. Serving the old tokens is
-  //    not politeness: an earlier verification record may still be mid-re-probe, and
-  //    answering only the newest would expire it.
-  const tokens = repos.edgeTargetVerification.servableTokens(row);
-  try {
-    const served = await routing.serveEdgeChallenge({ host, tokens });
-    if (!served.served) {
-      const reason = served.reason ?? "the edge could not be configured to serve the challenge";
+    // 1. Ask for a challenge. This RESETS the token upstream, which is exactly why the
+    //    previous one is retired rather than dropped below.
+    let challenge: Awaited<ReturnType<typeof client.edgeProxy.requestVerification>>;
+    try {
+      challenge = await client.edgeProxy.requestVerification(canonical);
+    } catch (err) {
+      return { verified: false, reason: safeErrorMessage(err) };
+    }
+    if (!challenge) {
+      return { verified: false, reason: "Openship Cloud is not connected for this organization" };
+    }
+
+    const row = await repos.edgeTargetVerification.recordChallenge({
+      organizationId,
+      target: canonical,
+      host,
+      ...(opts.serverId ? { serverId: opts.serverId } : {}),
+      verificationId: challenge.id,
+      token: challenge.token,
+      challengePath: challenge.path,
+      status: "pending",
+    });
+
+    // 2. Serve it — the current token AND every retired one. Serving the old tokens is
+    //    not politeness: an earlier verification record may still be mid-re-probe, and
+    //    answering only the newest would expire it.
+    const tokens = repos.edgeTargetVerification.servableTokens(row);
+    try {
+      const served = await routing.serveEdgeChallenge({ host, tokens });
+      if (!served.served) {
+        const reason = served.reason ?? "the edge could not be configured to serve the challenge";
+        await recordFailure(row.id, reason);
+        return { verified: false, reason };
+      }
+    } catch (err) {
+      const reason = `could not install the challenge on this box's edge: ${safeErrorMessage(err)}`;
       await recordFailure(row.id, reason);
       return { verified: false, reason };
     }
-  } catch (err) {
-    const reason = `could not install the challenge on this box's edge: ${safeErrorMessage(err)}`;
-    await recordFailure(row.id, reason);
-    return { verified: false, reason };
-  }
 
-  // 3. Read our own token back before asking Cloud to. ADVISORY ONLY — a box behind a
-  //    NAT that doesn't hairpin its own public IP will fail this while being perfectly
-  //    reachable from the internet, so treating it as authoritative would refuse
-  //    verifications that would have succeeded. Its value is diagnostic: when Cloud's
-  //    probe fails too, this line is what says whether the problem is our config or
-  //    the path to us.
-  const selfProbe = await probeOwnToken(canonical, challenge.path, challenge.token);
-  const selfProbeWarning = selfProbe.ok ? undefined : selfProbe.reason;
-  if (selfProbeWarning) {
-    opts.onLog?.(
-      `Note: couldn't read the target challenge back from ${canonical} (${selfProbeWarning}). ` +
-        `Continuing — Openship Cloud probes from outside your network, which may still succeed.\n`,
-      "warn",
-    );
-  }
+    // 3. Read our own token back before asking Cloud to. ADVISORY ONLY — a box behind a
+    //    NAT that doesn't hairpin its own public IP will fail this while being perfectly
+    //    reachable from the internet, so treating it as authoritative would refuse
+    //    verifications that would have succeeded. Its value is diagnostic: when Cloud's
+    //    probe fails too, this line is what says whether the problem is our config or
+    //    the path to us.
+    const selfProbe = await probeOwnToken(canonical, challenge.path, challenge.token);
+    const selfProbeWarning = selfProbe.ok ? undefined : selfProbe.reason;
+    if (selfProbeWarning) {
+      opts.onLog?.(
+        `Note: couldn't read the target challenge back from ${canonical} (${selfProbeWarning}). ` +
+          `Continuing — Openship Cloud probes from outside your network, which may still succeed.\n`,
+        "warn",
+      );
+    }
 
-  // 4. One check. Never a poll loop: the upstream allows 10 checks per 5 minutes and
-  //    counts failures toward a lockout, and a token that isn't being served will not
-  //    start being served by asking again.
-  let result: Awaited<ReturnType<typeof client.edgeProxy.checkVerification>>;
-  try {
-    result = await client.edgeProxy.checkVerification(challenge.id);
-  } catch (err) {
-    const reason = safeErrorMessage(err);
-    await recordFailure(row.id, reason);
-    return { verified: false, reason, ...(selfProbeWarning ? { selfProbeWarning } : {}) };
-  }
-  if (!result) {
-    const reason = "Openship Cloud returned no verification result";
-    await recordFailure(row.id, reason);
-    return { verified: false, reason, ...(selfProbeWarning ? { selfProbeWarning } : {}) };
-  }
+    // 4. One check. Never a poll loop: the upstream allows 10 checks per 5 minutes and
+    //    counts failures toward a lockout, and a token that isn't being served will not
+    //    start being served by asking again.
+    let result: Awaited<ReturnType<typeof client.edgeProxy.checkVerification>>;
+    try {
+      result = await client.edgeProxy.checkVerification(challenge.id);
+    } catch (err) {
+      const reason = safeErrorMessage(err);
+      await recordFailure(row.id, reason);
+      return { verified: false, reason, ...(selfProbeWarning ? { selfProbeWarning } : {}) };
+    }
+    if (!result) {
+      const reason = "Openship Cloud returned no verification result";
+      await recordFailure(row.id, reason);
+      return { verified: false, reason, ...(selfProbeWarning ? { selfProbeWarning } : {}) };
+    }
 
-  await repos.edgeTargetVerification.recordCheck(row.id, {
-    status: result.status,
-    validatedIp: result.validatedIp ?? null,
-    expiresAt: result.expiresAt ? new Date(result.expiresAt) : null,
-    lastError: result.status === "verified" ? null : (result.error ?? null),
-  });
+    await repos.edgeTargetVerification.recordCheck(row.id, {
+      status: result.status,
+      validatedIp: result.validatedIp ?? null,
+      expiresAt: result.expiresAt ? new Date(result.expiresAt) : null,
+      lastError: result.status === "verified" ? null : (result.error ?? null),
+    });
 
-  if (result.status === "verified") {
-    opts.onLog?.(
-      `Verified ${canonical} with Openship Cloud` +
-        (result.validatedIp ? ` (routing pinned to ${result.validatedIp})` : "") +
-        `.\n`,
-    );
-    return { verified: true };
+    if (result.status === "verified") {
+      opts.onLog?.(
+        `Verified ${canonical} with Openship Cloud` +
+          (result.validatedIp ? ` (routing pinned to ${result.validatedIp})` : "") +
+          `.\n`,
+      );
+      return { verified: true };
+    }
+
+    // The upstream's own `error` names the actual cause — DNS, a firewall, a proxy in
+    // front of :80 — and nothing we could substitute would be as specific.
+    return {
+      verified: false,
+      reason:
+        result.error ??
+        `Openship Cloud could not confirm control of ${canonical} (status: ${result.status})`,
+      ...(selfProbeWarning ? { selfProbeWarning } : {}),
+    };
+  } finally {
+    disposePlatform(resolved);
   }
-
-  // The upstream's own `error` names the actual cause — DNS, a firewall, a proxy in
-  // front of :80 — and nothing we could substitute would be as specific.
-  return {
-    verified: false,
-    reason:
-      result.error ??
-      `Openship Cloud could not confirm control of ${canonical} (status: ${result.status})`,
-    ...(selfProbeWarning ? { selfProbeWarning } : {}),
-  };
 }
 
 async function recordFailure(id: string, reason: string): Promise<void> {
@@ -264,25 +269,21 @@ export async function probeOwnToken(
 }
 
 /**
- * Routing for the box that is this target, when the caller didn't supply it.
+ * Platform for the box that is this target. The caller owns disposal after its
+ * routing work completes, including when caching the platform during a sweep.
  *
  * Reached only on the verification path (a sync that came back unverified) and from
  * the periodic sweep — never on a healthy deploy. Building a platform is not free, so
  * this deliberately stays off the hot path rather than being resolved eagerly and
  * thrown away.
  */
-export async function resolveRoutingFor(
+export async function resolveRoutingPlatform(
   organizationId: string,
   serverId?: string,
-): Promise<Routing | null> {
+): Promise<Platform | null> {
   try {
     const target = serverId ? "server" : "local";
-    const resolved = await resolveTargetPlatform(target, "docker", serverId, organizationId);
-    // Only `.routing` is wanted, but "docker" mode already bound a
-    // Docker-over-SSH bridge for a remote server. Routing drives the box through
-    // the pooled SSH executor, so it survives the release.
-    disposePlatform(resolved);
-    return resolved.routing;
+    return await resolveTargetPlatform(target, "docker", serverId, organizationId);
   } catch (err) {
     console.warn(
       `[edge-verify] could not resolve routing for ${serverId ?? "this box"}: ${safeErrorMessage(err)}`,

@@ -1044,18 +1044,14 @@ export async function stepRequestSSL(
   // the mail module is imported from it — a static import would be a cycle.
   const { resolveTargetPlatform, disposePlatform } = await import("../../lib/deployment-runtime");
 
+  let platform: Awaited<ReturnType<typeof resolveTargetPlatform>> | undefined;
   try {
-    const platform = await resolveTargetPlatform(
+    platform = await resolveTargetPlatform(
       "server",
       "bare",
       target.serverId,
       target.organizationId,
     );
-    // A no-op today — "bare" resolves a BareRuntime, which holds no transport. Kept
-    // so this stays correct if the mode ever becomes "docker": that would bind a
-    // Docker-over-SSH bridge per cert issuance. Only `.ssl` is used below, and it
-    // drives certbot through the pooled SSH executor, which dispose doesn't touch.
-    disposePlatform(platform);
     const result = await platform.ssl.provisionCert(mailDomain, {
       onLog: (line) => log(stepId, "info", line),
     });
@@ -1083,6 +1079,8 @@ export async function stepRequestSSL(
   } catch (err) {
     // Already the summarized, actionable cause (summarizeCertbotFailure).
     return { stepId, success: false, message: errMsg(err) };
+  } finally {
+    disposePlatform(platform);
   }
 }
 

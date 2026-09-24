@@ -10,6 +10,7 @@ import { GitBranch, Clock, ExternalLink, MoreVertical, Archive, Pin, Activity } 
 import { getFrameworkConfig } from "@/components/import-project/Frameworks";
 import { AppLogo } from "@/components/AppLogo";
 import { useI18n, interpolate } from "@/components/i18n-provider";
+import { useImageFallback } from "@/hooks/useImageFallback";
 
 type ServiceStatusLabels = {
   deployed: string;
@@ -120,10 +121,9 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({
   const { t } = useI18n();
   const [isCommitModalOpen, setIsCommitModalOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [faviconError, setFaviconError] = useState(false);
+  const favicon = useImageFallback(deployment.favicon);
   const statusConfig = getStatusConfig(deployment.status);
   const frameworkConfig = getFrameworkConfig(deployment.framework);
-  const hasFavicon = !!deployment.favicon && !faviconError;
 
   const statusLabelMap: Record<string, string> = {
     success: t.deployments.status.deployed,
@@ -145,7 +145,7 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({
     deployment.commit?.message && deployment.commit.message !== "Manual deployment";
 
   return (
-    <div className="group relative flex items-center gap-4 px-4 py-4 transition-colors hover:bg-muted/25">
+    <div className="group relative grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-4 py-4 transition-colors hover:bg-muted/25 sm:flex sm:items-center sm:gap-4">
       <Link
         href={`/build/${deployment.id}`}
         aria-label={deployment.projectName || t.deployments.card.unknownProject}
@@ -155,12 +155,13 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({
       <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/45 transition-colors group-hover:bg-muted/65">
         {appTemplateId ? (
           <AppLogo appId={appTemplateId} className="size-5 object-contain" />
-        ) : hasFavicon ? (
+        ) : favicon.showImage ? (
           <img
+            ref={favicon.ref}
             src={deployment.favicon!}
             alt=""
             className="size-5 object-contain"
-            onError={() => setFaviconError(true)}
+            onError={favicon.onError}
           />
         ) : frameworkConfig.icon ? (
           frameworkConfig.icon("var(--foreground)")
@@ -174,7 +175,7 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({
       {/* Main info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <p className="text-sm font-semibold text-foreground truncate">
+          <p className="min-w-0 text-sm font-semibold text-foreground truncate">
             {deployment.projectName || t.deployments.card.unknownProject}
           </p>
           {deployment.version != null && (
@@ -259,8 +260,8 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({
             })}
           </div>
         )}
-        <div className="flex items-center gap-2 mt-0.5">
-          <p className="max-w-[320px] truncate text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
+          <p className="min-w-0 max-w-full sm:max-w-[320px] truncate text-xs text-muted-foreground">
             {hasCommitMessage ? deployment.commit.message : t.deployments.card.manualDeploy}
           </p>
           <span className="text-muted-foreground/40">·</span>
@@ -279,9 +280,9 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({
           {deployment.branch && (
             <>
               <span className="text-muted-foreground/40 hidden sm:inline">·</span>
-              <span className="text-xs text-muted-foreground shrink-0 items-center gap-1 hidden sm:flex">
-                <GitBranch className="size-3" />
-                {deployment.branch}
+              <span className="min-w-0 max-w-full text-xs text-muted-foreground items-center gap-1 hidden sm:flex">
+                <GitBranch className="size-3 shrink-0" />
+                <span className="truncate">{deployment.branch}</span>
               </span>
             </>
           )}
@@ -295,7 +296,7 @@ export const DeploymentCard: React.FC<DeploymentCardProps> = ({
           whole block while the menu is open is what puts it above the siblings;
           the dropdown's own z-50 only orders it within this block. */}
       <div
-        className={`relative flex items-center gap-2 shrink-0 ${isMenuOpen ? "z-30" : "z-10"}`}
+        className={`relative col-start-2 flex items-center gap-2 shrink-0 ${isMenuOpen ? "z-30" : "z-10"}`}
       >
         {hasCommitData && (
           <button

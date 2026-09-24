@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Check, X } from "lucide-react";
@@ -56,16 +56,29 @@ export default function AcceptInvitePage() {
   const [signupError, setSignupError] = useState<string | null>(null);
 
   const inviteId = Array.isArray(params.id) ? params.id[0] ?? "" : String(params.id ?? "");
+  // A session refresh must not let an older preview replace an acceptance.
+  // Scope the attempt to this invitation so navigation also invalidates old work.
+  const claimRef = useRef({ inviteId, phase: "idle" as "idle" | "accepting" | "accepted" });
+  if (claimRef.current.inviteId !== inviteId) claimRef.current = { inviteId, phase: "idle" };
+  const redirectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (redirectRef.current) clearTimeout(redirectRef.current);
+    if (claimRef.current.inviteId === inviteId) {
+      claimRef.current = { inviteId, phase: "idle" };
+    }
+  }, [inviteId]);
 
   useEffect(() => {
-    if (sessionLoading) return;
+    const claim = claimRef.current;
+    if (sessionLoading || claim.phase !== "idle") return;
 
     let active = true;
+    const current = () => active && claimRef.current === claim && claim.phase === "idle";
 
     void (async () => {
       try {
         if (!inviteId) {
-          if (active) setState({ kind: "error", message: m.invalidInvitation });
+          if (current()) setState({ kind: "error", message: m.invalidInvitation });
           return;
         }
         // Better Auth's getInvitation endpoint requires a session. The public
@@ -74,7 +87,7 @@ export default function AcceptInvitePage() {
           `auth/invitation-preview/${encodeURIComponent(inviteId)}`,
         );
         const { invitation, organization, accountCreation } = res.data;
-        if (!active) return;
+        if (!current()) return;
         if (!session?.user) {
           setState({
             kind: "needs-login",
@@ -101,7 +114,7 @@ export default function AcceptInvitePage() {
           role: invitation.role,
         });
       } catch (err) {
-        if (active) {
+        if (current()) {
           setState({
             kind: "error",
             message: getApiErrorMessage(err, m.loadFailed),
@@ -116,10 +129,15 @@ export default function AcceptInvitePage() {
   }, [inviteId, session?.user?.email, sessionLoading, m]);
 
   const handleAccept = async (organizationName: string) => {
+    if (claimRef.current.inviteId !== inviteId || claimRef.current.phase !== "idle") return;
+    const claim: typeof claimRef.current = { inviteId, phase: "accepting" };
+    claimRef.current = claim;
     setState({ kind: "accepting" });
     try {
       const res = await orgClient.acceptInvitation({ invitationId: inviteId });
+      if (claimRef.current !== claim) return;
       if (res.error || !res.data) {
+        claim.phase = "idle";
         setState({
           kind: "error",
           message: res.error?.message ?? m.acceptFailed,
@@ -138,13 +156,19 @@ export default function AcceptInvitePage() {
         console.warn("[accept-invite] materialize failed (continuing):", err);
       }
 
+      if (claimRef.current !== claim) return;
+      claim.phase = "accepted";
       setState({
         kind: "accepted",
         organizationId: res.data.invitation.organizationId,
         organizationName,
       });
-      setTimeout(() => router.push("/"), 1500);
+      redirectRef.current = setTimeout(() => {
+        if (claimRef.current === claim) router.push("/");
+      }, 1500);
     } catch (err) {
+      if (claimRef.current !== claim) return;
+      claim.phase = "idle";
       setState({
         kind: "error",
         message: getApiErrorMessage(err, m.acceptFailed),

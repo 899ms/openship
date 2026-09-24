@@ -76,7 +76,7 @@ export function DataTable<T>({
   return (
     // No overflow-hidden: a row's ⋯ menu renders in-flow, so it would be
     // clipped on the last row. Corners come from the header + last row instead.
-    <div className="bg-card rounded-2xl border border-border/50">
+    <div role="table" aria-busy={loading || undefined} className="bg-card rounded-2xl border border-border/50">
       {/* Header row. A hairline and quieter labels, no grey fill strip: the
           dashboard's other lists head their cards this way, and the filled bar
           read as a second surface stacked on the card. */}
@@ -89,7 +89,7 @@ export function DataTable<T>({
           <div
             key={c.key}
             className={cn(
-              "text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider",
+              "text-[11px] font-medium text-muted-foreground uppercase tracking-wider",
               alignClass(c.align),
               hideBelowClass(c.hideBelow),
             )}
@@ -98,11 +98,11 @@ export function DataTable<T>({
             {c.header}
           </div>
         ))}
-        {rowActions && <div />}
+        {rowActions && <div role="columnheader" />}
       </div>
 
       {/* Body */}
-      <div className="divide-y divide-border/50">
+      <div role="rowgroup" className="divide-y divide-border/50">
         {loading
           ? Array.from({ length: skeletonRows }).map((_, i) => (
               <DataTableRowSkeleton
@@ -166,6 +166,7 @@ function DataTableRow<T>({
       ))}
       {rowActions && (
         <div
+          role="cell"
           className="flex items-center justify-end gap-1"
           onClick={(e) => e.stopPropagation()}
         >
@@ -187,6 +188,7 @@ function DataTableRowSkeleton({
 }) {
   return (
     <div
+      aria-hidden="true"
       className="grid items-center gap-4 px-5 py-4"
       style={{ gridTemplateColumns: gridTemplate }}
     >

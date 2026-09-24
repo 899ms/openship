@@ -56,6 +56,9 @@ const h = vi.hoisted(() => ({
   /** Source-run status. THE gate that makes capture atomic — see the tests at the end. */
   sourceStatus: "succeeded" as string,
   sourceDeletedAt: null as Date | null,
+  sourceKind: "service",
+  runtime: { name: "bare" },
+  disposeRuntime: vi.fn(),
 }));
 
 vi.mock("@repo/db", () => ({
@@ -68,7 +71,8 @@ vi.mock("@repo/db", () => ({
         organizationId: "org_1",
         projectId: "prj_1",
         serviceId: "svc_1",
-        sourceKind: "service",
+        sourceKind: h.sourceKind,
+        mailServerId: h.sourceKind === "mail_server" ? "mail_1" : null,
         policyId: h.policyId,
         manifestKey: h.manifestKey,
         deletedAt: h.sourceDeletedAt,
@@ -120,6 +124,7 @@ vi.mock("@repo/db", () => ({
       listByProject: async () => [{ id: "svc_1" }],
     },
     deployment: { findById: async () => null },
+    mailServer: { get: async () => ({ id: "mail_1", domain: "mail.example.com" }) },
   },
 }));
 
@@ -172,12 +177,10 @@ vi.mock("@repo/platform/engine/modules/backups/restore.sse", () => ({
 }));
 
 vi.mock("@repo/platform/engine/lib/deployment-runtime", () => ({
-  // The orchestrator releases the runtime it resolved when the run ends; these
-  // stubs hold no transport, so the release is a no-op here.
-  disposeRuntime: () => {},
+  disposeRuntime: h.disposeRuntime,
   disposePlatform: () => {},
   resolveDeploymentPlatform: async () => ({ platform: { runtime: { name: "docker" } } }),
-  resolveTargetPlatform: async () => ({ runtime: { name: "bare" } }),
+  resolveTargetPlatform: async () => ({ runtime: h.runtime }),
 }));
 vi.mock("@repo/platform/engine/lib/encryption", () => ({ decryptEnvMap: (v: unknown) => v }));
 vi.mock("@repo/platform/engine/lib/job-runner/index", () => ({
@@ -245,6 +248,8 @@ const meta = () => (h.transitions.at(-1)!.patch?.meta ?? {}) as Record<string, u
 beforeEach(() => {
   h.sourceStatus = "succeeded";
   h.sourceDeletedAt = null;
+  h.sourceKind = "service";
+  h.disposeRuntime.mockClear();
   h.objects.clear();
   h.artifacts = [];
   h.manifestKey = null;
@@ -259,6 +264,16 @@ beforeEach(() => {
 });
 
 describe("prepare re-hashes what it says it re-hashes", () => {
+  it.each([false, true])("releases the mail target after preflight (invalid target: %s)", async (invalidTarget) => {
+    h.sourceKind = "mail_server";
+    h.artifacts = [recorded({ metadata: { volumeId: invalidTarget ? "missing" : "pgdata" } })];
+    h.objects.set(recorded().key, VOLUME);
+    const last = await prepare();
+    expect(last.status).toBe(invalidTarget ? "failed" : "prepared");
+    expect(h.disposeRuntime).toHaveBeenCalledExactlyOnceWith(h.runtime);
+    expect(h.targetTouched).toBe(false);
+  });
+
   it("reaches prepared and records that sha256 actually ran", async () => {
     const artifact = recorded();
     h.artifacts = [artifact];

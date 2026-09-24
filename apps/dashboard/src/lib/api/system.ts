@@ -1,13 +1,23 @@
-import { api, getApiBaseUrl, getActiveOrganizationId } from "./client";
-import type { ServerInfrastructure } from "@repo/contracts";
+import { api, ApiError, getApiBaseUrl, getActiveOrganizationId } from "./client";
+import {
+  isResourceOutput,
+  ServerCollectionSchemas,
+  ServerResourceSchemas,
+  type ResourceOperationSchema,
+} from "@repo/contracts";
 import { endpoints } from "./endpoints";
 // Removal types + the timeout rule live with the pure helpers so the modal and this
 // client share one definition (and so the rule is testable without React).
-import {
-  serverRemovalTimeoutMs,
-  type ServerDeletionPreview,
-  type ServerRemovalResult,
-} from "../server-removal";
+import { serverRemovalTimeoutMs } from "../server-removal";
+
+/** Reject malformed responses before they can poison rendered server state. */
+async function checkedResponse<S extends ResourceOperationSchema>(schema: S, request: Promise<unknown>) {
+  const result = await request;
+  if (!isResourceOutput(schema, result)) {
+    throw new ApiError(502, "Invalid server response", { error: "The server returned an invalid response." });
+  }
+  return result;
+}
 
 /**
  * Client budget for an ad-hoc SSH probe.
@@ -746,7 +756,7 @@ export const systemApi = {
     api.get<ServerInfo>(endpoints.system.server(id)),
 
   getServerInfrastructure: (id: string) =>
-    api.get<ServerInfrastructure>(`${endpoints.system.server(id)}/infrastructure`),
+    checkedResponse(ServerResourceSchemas.infrastructure, api.get(`${endpoints.system.server(id)}/infrastructure`)),
 
   /**
    * Lightweight liveness probe for the list view (TCP reachability).
@@ -769,9 +779,7 @@ export const systemApi = {
   /** What "Remove server" is about to take with it — every project/app bound to the
    *  box plus the server-scoped records that cascade. Read-only; safe on modal open. */
   serverDeletionPreview: (id: string) =>
-    api.get<{ ok: boolean; preview: ServerDeletionPreview }>(
-      endpoints.system.serverDeletionPreview(id),
-    ),
+    checkedResponse(ServerResourceSchemas.deletionPreview, api.get(endpoints.system.serverDeletionPreview(id))),
 
   /**
    * Remove a server, resolving the fate of every workload bound to it.
@@ -788,9 +796,9 @@ export const systemApi = {
     opts: { destroyOnSource?: boolean; workloadCount?: number } = {},
   ) => {
     const qs = opts.destroyOnSource ? "?destroyOnSource=true" : "";
-    return api.delete<ServerRemovalResult>(`${endpoints.system.server(id)}${qs}`, {
+    return checkedResponse(ServerResourceSchemas.remove, api.delete(`${endpoints.system.server(id)}${qs}`, {
       timeout: serverRemovalTimeoutMs(opts),
-    });
+    }));
   },
 
   // ── Native-module updates (per-server) ─────────────────────────────────────
@@ -938,11 +946,12 @@ export const systemApi = {
 
   /** Every org server with its cached edge/mail rows — the global infra view. */
   listAllContainers: () =>
-    api.get<ServerContainerGroup[]>(endpoints.system.allContainers()),
+    checkedResponse(ServerCollectionSchemas.listAllContainers, api.get(endpoints.system.allContainers())),
 
   /** Detect-only refresh across every org server, then return the grouped view. */
   scanAllContainers: () =>
-    api.post<ServerContainerGroup[]>(endpoints.system.allContainersScan(), {}, { timeout: 120_000 }),
+    checkedResponse(ServerCollectionSchemas.scanAllContainers,
+      api.post(endpoints.system.allContainersScan(), {}, { timeout: 120_000 })),
 
   /**
    * Update every behind container and/or restart every stopped one across the org.
@@ -957,9 +966,10 @@ export const systemApi = {
    * a failure for work that's already running.
    */
   applyAllContainers: (intents?: ContainerApplyIntent[]) =>
-    api.post<BulkApplyResult>(endpoints.system.allContainersApply(), intents ? { intents } : {}, {
+    checkedResponse(ServerCollectionSchemas.applyAllContainers,
+      api.post(endpoints.system.allContainersApply(), intents ? { intents } : {}, {
       timeout: 120_000,
-    }),
+    })),
 
   /**
    * Live progress for every apply the org has in flight, plus the ones that settled
@@ -967,22 +977,17 @@ export const systemApi = {
    * while something is running.
    */
   applyingContainers: () =>
-    api.get<ContainerApplyProgress>(endpoints.system.allContainersApplying()),
+    checkedResponse(ServerCollectionSchemas.applyingContainers, api.get(endpoints.system.allContainersApplying())),
 
   // ── Rate Limiting (per-server) ─────────────────────────────────────────────
 
   /** Get rate limit config for a server */
   getRateLimit: (serverId: string) =>
-    api.get<{ config: ServerRateLimitConfig }>(
-      endpoints.system.serverRateLimit(serverId),
-    ),
+    checkedResponse(ServerResourceSchemas.getRateLimit, api.get(endpoints.system.serverRateLimit(serverId))),
 
   /** Update rate limit config for a server */
   updateRateLimit: (serverId: string, data: { rps?: number; burst?: number; whitelist?: string[] }) =>
-    api.patch<{ success: true; config: ServerRateLimitConfig } | { success: false; error?: string }>(
-      endpoints.system.serverRateLimit(serverId),
-      data,
-    ),
+    checkedResponse(ServerResourceSchemas.updateRateLimit, api.patch(endpoints.system.serverRateLimit(serverId), data)),
 
   // ── Port exposure scan (per-server) ────────────────────────────────────────
 

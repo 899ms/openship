@@ -21,13 +21,14 @@ const mocks = vi.hoisted(() => ({
     reason: "issued" as const,
   })),
   resolveTargetPlatform: vi.fn(),
+  disposePlatform: vi.fn(),
 }));
 
 vi.mock("@repo/platform/engine/lib/deployment-runtime", () => ({
   // The orchestrator releases the runtime it resolved when the run ends; these
   // stubs hold no transport, so the release is a no-op here.
   disposeRuntime: () => {},
-  disposePlatform: () => {},
+  disposePlatform: mocks.disposePlatform,
   resolveTargetPlatform: mocks.resolveTargetPlatform,
 }));
 
@@ -49,6 +50,22 @@ beforeEach(() => {
 });
 
 describe("step 12 — issuance goes through platform.ssl", () => {
+  test.each([false, true])("keeps the provider alive through delayed issuance (failure: %s)", async (fail) => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    mocks.provisionCert.mockImplementationOnce(async () => {
+      await gate;
+      if (fail) throw new Error("issuance failed");
+      return { domain: "mail.example.com", expiresAt: "2030-01-01T00:00:00.000Z", issuer: "R11", verified: true, reason: "issued" as const };
+    });
+    const pending = stepRequestSSL(fakeExecutor().executor, "example.com", () => {}, TARGET);
+    await vi.waitFor(() => expect(mocks.provisionCert).toHaveBeenCalledOnce());
+    expect(mocks.disposePlatform).not.toHaveBeenCalled();
+    finish();
+    expect((await pending).success).toBe(!fail);
+    expect(mocks.disposePlatform).toHaveBeenCalledExactlyOnceWith({ ssl: { provisionCert: mocks.provisionCert } });
+  });
+
   test("delegates to provisionCert for mail.<domain> and never execs certbot", async () => {
     const { executor, commands } = fakeExecutor();
 

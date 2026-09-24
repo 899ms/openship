@@ -3177,7 +3177,7 @@ export function OpenshipReimportSection({
         })}
       </div>
 
-      <p className="max-w-2xl px-0.5 text-xs leading-relaxed text-muted-foreground/70">
+      <p className="max-w-2xl px-0.5 text-xs leading-relaxed text-muted-foreground">
         {alreadyManaged > 0 && `${interpolate(m.alreadyManaged, { n: String(alreadyManaged) })} `}
         {m.finalizeNote}
       </p>
@@ -3584,7 +3584,7 @@ function ServiceMapPanel({
       ) : (
         <>
           <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {s.composeServicesTitle}
             </p>
             <div className="flex flex-wrap gap-1.5">
@@ -3630,11 +3630,11 @@ function ServiceMapPanel({
                   </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
-                      <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {s.mapField}
                       </label>
                       {Object.keys(sv.env).length > 0 && (
-                        <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
                           {interpolate(t.migration.discover.nEnv, {
                             n: String(Object.keys(sv.env).length),
                           })}
@@ -3969,7 +3969,7 @@ function ServiceConfigCard({
         <span className="flex min-w-0 items-center gap-2">
           <KeyRound className="size-4 shrink-0 text-muted-foreground" />
           <span className="text-[13px] font-medium text-foreground">{s.envTitle}</span>
-          <span className="text-[12px] text-muted-foreground/70">
+          <span className="text-[12px] text-muted-foreground">
             · {interpolate(d.nEnv, { n: String(Object.keys(envRecord).length) })}
           </span>
         </span>
@@ -4007,7 +4007,7 @@ function ServiceConfigCard({
           </div>
           {imageEnvOpen && (
             <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
-              <p className="text-[11px] text-muted-foreground/70">{d.envFromImageHint}</p>
+              <p className="text-[11px] text-muted-foreground">{d.envFromImageHint}</p>
               {pendingImageEnv.map(([key, value]) => (
                 <p key={key} className="truncate font-mono text-[11px] text-muted-foreground">
                   {key}={value}
