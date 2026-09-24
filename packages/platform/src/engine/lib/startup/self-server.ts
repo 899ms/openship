@@ -196,7 +196,7 @@ export interface LocalServerHostChannel {
    */
   ok: boolean;
   /** Which host-channel state, in `hostChannelHealth`'s own vocabulary. */
-  channel: HostChannelCode;
+  code: HostChannelCode;
   /** Operator-facing remedy, when there is one — the same string this row's own
    *  reachability endpoint returns. One wording, one source. */
   hint: string | null;
@@ -225,7 +225,7 @@ export async function localServerHostChannel(
   if (!d?.channel) return null;
   return {
     ok: d.channel === "ok" || d.channel === "not_applicable",
-    channel: d.channel,
+    code: d.channel,
     hint: d.hint ?? null,
   };
 }
