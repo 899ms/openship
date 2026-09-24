@@ -112,6 +112,9 @@ export interface BuildConfig {
   commitSha?: string;
   /** Absolute path to a local project directory (used instead of repoUrl for local projects) */
   localPath?: string;
+  /** Inline catalog source, written inside a Cloud Docker workspace without
+   * reading a path on the API host. Paths are relative to the shared build root. */
+  inlineSourceFiles?: Array<{ path: string; content: string }>;
   /** Where the build runs: "server" (clone/copy to workspace) or "local" (build on host, transfer dist) */
   buildStrategy?: BuildStrategy;
   /**

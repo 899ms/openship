@@ -14,17 +14,23 @@ const mocks = vi.hoisted(() => ({
   hideModal: vi.fn(),
   toast: vi.fn(),
   serverIds: ["one", "two"],
+  selfHosted: true,
+  rescanStatus: vi.fn(),
 }));
 vi.mock("@/context/ModalContext", () => ({
   useModal: () => ({ showModal: mocks.showModal, hideModal: mocks.hideModal }),
 }));
-vi.mock("@/context/PlatformContext", () => ({ usePlatform: () => ({ selfHosted: true }) }));
+vi.mock("@/context/PlatformContext", () => ({ usePlatform: () => ({ selfHosted: mocks.selfHosted }) }));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
-vi.mock("@/components/issues/MonitoringHealth", () => ({ MonitoringHealth: () => null }));
+vi.mock("@/components/issues/MonitoringHealth", () => ({
+  MonitoringHealth: ({ onViewIssues }: { onViewIssues: () => void }) => (
+    <button onClick={onViewIssues}>View issues</button>
+  ),
+}));
 vi.mock("@/lib/api", () => ({
   getApiBaseUrl: () => "http://localhost/api/",
   getApiErrorMessage: (_: unknown, fallback: string) => fallback,
-  issuesApi: { list: mocks.list, rescanStatus: async () => ({ data: null }) },
+  issuesApi: { list: mocks.list, rescanStatus: mocks.rescanStatus },
   systemApi: { getInstallSession: mocks.install, listServerContainers: mocks.containers },
 }));
 vi.mock("@/hooks/useInfraFleet", () => ({
@@ -104,6 +110,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetcher.mockReset();
   mocks.serverIds = ["one", "two"];
+  mocks.selfHosted = true;
+  mocks.rescanStatus.mockReset().mockResolvedValue({ data: null });
   mocks.install.mockReset().mockResolvedValue({ active: false });
   mocks.containers.mockReset().mockResolvedValue([]);
   mocks.list.mockResolvedValue({
@@ -129,6 +137,29 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+});
+
+describe("Monitoring health navigation", () => {
+  it("links back to Issues without duplicating the health tab's scan controls or feed reads", async () => {
+    await render();
+    const reads = mocks.list.mock.calls.length;
+    await click("Health");
+    expect(buttons("Re-scan")).toHaveLength(0);
+    expect(mocks.list).toHaveBeenCalledTimes(reads);
+    await click("View issues");
+    expect(buttons("Re-scan")).toHaveLength(1);
+    expect(mocks.list).toHaveBeenCalledTimes(reads + 1);
+  });
+
+  it("excludes local health controls and scan-status polling in cloud mode", async () => {
+    mocks.selfHosted = false;
+    await render();
+    expect(buttons("Health")).toHaveLength(0);
+    expect(buttons("View issues")).toHaveLength(0);
+    expect(buttons("Re-scan")).toHaveLength(0);
+    expect(mocks.rescanStatus).not.toHaveBeenCalled();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
 });
 afterEach(async () => {
   await act(async () => root.unmount());

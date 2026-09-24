@@ -30,6 +30,7 @@ import { useMailScope } from "@/context/MailScopeContext";
 import { setActiveOrganizationId } from "@/lib/api/client";
 import { projectsApi } from "@/lib/api";
 import { useSidebarCollapse } from "@/hooks/useSidebarCollapse";
+import { useIssueCounts } from "@/hooks/useIssueCounts";
 import { getSidebarNavCountsRevision, subscribeSidebarNavCounts } from "@/lib/sidebar-nav-counts";
 import {
   getMailNavSections,
@@ -127,12 +128,6 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
   const [loggingOut, setLoggingOut] = useState(false);
   const [navCounts, setNavCounts] = useState<{ projects: number; apps: number } | null>(null);
   const [navCountsRevision, setNavCountsRevision] = useState(getSidebarNavCountsRevision);
-  const countFor = (key: string): number | null => {
-    if (!navCounts) return null;
-    if (key === "projects") return navCounts.projects;
-    if (key === "apps") return navCounts.apps;
-    return null;
-  };
 
   useEffect(
     () =>
@@ -153,6 +148,17 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
   const [orgRoles, setOrgRoles] = useState<Record<string, string>>({});
   const [orgsLoaded, setOrgsLoaded] = useState(false);
   const [switchingOrgId, setSwitchingOrgId] = useState<string | null>(null);
+  const hasMonitoring = navSections.some(({ items }) => items.some(({ key }) => key === "issues"));
+  const issueCounts = useIssueCounts(orgsLoaded && hasMonitoring ? activeOrgId : undefined);
+  const countFor = (key: string): number | null => {
+    // Match Home's Needs attention card; available updates are advisories.
+    if (key === "issues")
+      return issueCounts ? issueCounts.outage + issueCounts.actionRequired : null;
+    if (!navCounts) return null;
+    if (key === "projects") return navCounts.projects;
+    if (key === "apps") return navCounts.apps;
+    return null;
+  };
 
   // Fetch on mount so the trigger shows the current org name without
   // waiting for the user to click. Cheap (one /list call) and mirrors
@@ -376,11 +382,16 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
                   const { key, href, icon: Icon, labelSource } = item;
                   const active = isNavItemActive(item, pathname, currentTab);
                   const count = countFor(key);
+                  const issueLabel =
+                    key === "issues" && count != null && count > 0
+                      ? `${label(key, labelSource)}: ${count === 1 ? t.dashboard.home.oneIssue : interpolate(t.dashboard.home.manyIssues, { n: String(count) })}`
+                      : undefined;
                   return (
                     <Link
                       key={key}
                       href={href}
-                      title={collapsed ? label(key, labelSource) : undefined}
+                      title={collapsed ? (issueLabel ?? label(key, labelSource)) : undefined}
+                      aria-label={issueLabel}
                       className={`flex items-center rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors ${
                         collapsed ? "justify-center" : "gap-3"
                       } ${
@@ -393,11 +404,11 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
                       {!collapsed && (
                         <span className="flex-1 truncate">{label(key, labelSource)}</span>
                       )}
-                      {/* Subtle right-aligned tally — Projects & Apps only, hidden
-                          at 0 and when collapsed. Muted + tabular so it reads as
-                          metadata, not a notification badge. */}
+                      {/* Hide zero/loading counts; keep issue counts in the collapsed label. */}
                       {!collapsed && count != null && count > 0 && (
-                        <span className="shrink-0 text-[13px] tabular-nums text-muted-foreground/45">
+                        <span
+                          className={`shrink-0 text-[13px] tabular-nums ${key === "issues" ? (issueCounts?.outage ? "text-danger" : "text-warning") : "text-muted-foreground/45"}`}
+                        >
                           {count}
                         </span>
                       )}

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   claimBuildExecution: vi.fn(),
   cancelUnclaimedBuild: vi.fn(),
   acknowledgeBuildExecutionFinished: vi.fn(),
+  findCloudDockerBinding: vi.fn(),
   updateDeploymentStatus: vi.fn(),
   updateBuildSession: vi.fn(),
   findDeploymentById: vi.fn(),
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@repo/db", () => ({
   schema: {},
   repos: {
+    cloudDockerWorkspace: { find: (...args: unknown[]) => mocks.findCloudDockerBinding(...args) },
     deployment: {
       findBuildSessionByDeploymentId: (...args: unknown[]) =>
         mocks.findBuildSessionByDeploymentId(...args),
@@ -264,7 +266,7 @@ function allocatePinnedHostPort(input: {
 
 import { platform } from "@repo/platform/engine/lib/platform-config";
 import { resolveDeploymentPlatform } from "@repo/platform/engine/lib/deployment-runtime";
-import { kickoffBuild } from "@repo/platform/engine/modules/deployments/build-pipeline";
+import { kickoffBuild, resolveServicePipelineMode } from "@repo/platform/engine/modules/deployments/build-pipeline";
 
 const SOURCE_IMAGE = "ghcr.io/acme/release-app:v1.2.3";
 const RESOLVED_IMAGE = "ghcr.io/acme/release-app@sha256:abc123";
@@ -359,6 +361,7 @@ async function run(dep = deployment(), projectOverrides: Record<string, unknown>
 describe("single-app prebuilt release-image pipeline", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.findCloudDockerBinding.mockResolvedValue(undefined);
     const adapter = runtime();
     resolvedRuntime = adapter;
 
@@ -750,6 +753,27 @@ describe("single-app prebuilt release-image pipeline", () => {
     expect(mocks.deploy).not.toHaveBeenCalled();
     expect(mocks.runDeployPipeline).not.toHaveBeenCalled();
     expect(mocks.build).not.toHaveBeenCalled();
+  });
+});
+
+describe("Cloud Docker placement stays on the service pipeline", () => {
+  it("refuses a single-app request against a frozen Docker workspace", async () => {
+    await expect(resolveServicePipelineMode(project(), {
+      ...snapshot(), cloudDockerWorkspace: { projectId: "project-1", workspaceId: "workspace-a" },
+    } as never)).rejects.toMatchObject({ code: "CLOUD_DOCKER_SERVICE_MODE_REQUIRED" });
+  });
+
+  it("checks the durable binding when a new snapshot omits its workspace metadata", async () => {
+    mocks.findCloudDockerBinding.mockResolvedValueOnce({ workspaceId: "workspace-a" });
+    await expect(resolveServicePipelineMode(project({ cloudWorkspaceId: "workspace-a" }), snapshot() as never))
+      .rejects.toMatchObject({ code: "CLOUD_DOCKER_SERVICE_MODE_REQUIRED" });
+    expect(mocks.findCloudDockerBinding).toHaveBeenLastCalledWith("project-1", "org-1");
+  });
+
+  it("keeps native single-app workspaces on their original pipeline", async () => {
+    mocks.findCloudDockerBinding.mockResolvedValueOnce(undefined);
+    await expect(resolveServicePipelineMode(project({ cloudWorkspaceId: "native-a" }), snapshot() as never))
+      .resolves.toMatchObject({ useSingleAppPipeline: true, useServicePipeline: false });
   });
 });
 

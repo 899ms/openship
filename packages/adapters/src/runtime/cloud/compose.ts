@@ -204,7 +204,7 @@ export class CloudComposeSupport {
     onLog?: LogCallback,
   ): Promise<MultiServiceDeployResult> {
     if (config.volumes?.length) {
-      throw new Error("Persistent volume mounts are not supported on Openship Cloud. Choose a server for this service.");
+      throw new Error("Compose volume mounts require a Cloud Docker workspace. Deploy this service as a Compose project, or use a server.");
     }
     const log = onLog ?? (() => {});
     const groupState = this.groups.get(group.id) ?? {
@@ -403,10 +403,14 @@ export class CloudComposeSupport {
     } catch (err) {
       if (workspaceId) {
         groupState.services.delete(config.serviceName);
-        await this.deps
-          .workspace(workspaceId)
-          .delete()
-          .catch(() => {});
+        // A reused native workspace owns the service's existing disk. A failed
+        // workload or routing update must leave that disk available for retry.
+        if (workspaceId !== config.previousWorkspaceId) {
+          await this.deps
+            .workspace(workspaceId)
+            .delete()
+            .catch(() => {});
+        }
       }
       throw err;
     }
