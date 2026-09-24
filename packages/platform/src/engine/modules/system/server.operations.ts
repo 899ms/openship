@@ -60,7 +60,7 @@ function serializeServer(s: Awaited<ReturnType<typeof repos.server.get>>) {
     createdAt: s.createdAt,
     // ISO country for the row's flag; null for hostnames/private IPs or until
     // the geo DB is warmed (callers prime it via primeGeo before serializing).
-    country: countryForIp(s.sshHost) ?? null,
+    country: countryForIp(s.sshHost),
   };
 }
 
