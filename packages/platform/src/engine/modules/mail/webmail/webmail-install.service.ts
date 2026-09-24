@@ -35,6 +35,7 @@ import {
   type ComposeAdvanced,
   type OpenshipReadiness, mailHostname } from "@repo/core";
 import { repos, type Domain, type Project } from "@repo/db";
+import type { Platform } from "@repo/adapters";
 import { assertResourceInOrg } from "../../../lib/resource-access";
 import { pickCanonicalDomainRow, resolveServicePublicEndpoints } from "../../../lib/public-endpoints";
 import type { ExecutionContext as RequestContext } from "@repo/platform";
@@ -708,19 +709,20 @@ export async function onWebmailDeployed(
     const rows = await listProjectRouteRows(project.id);
     if (rows.length > 0) return;
 
-    const platform = await resolveMailVpsPlatform(mailServer.serverId, project.organizationId);
-    await platform.routing.registerRoute({
-      domain: mailHostname(mailServer.domain),
-      tls: true,
-      // We issue this host's cert right below, so the edge must keep a :443
-      // listener up meanwhile — a routed host with no TLS listener refuses
-      // the handshake (Cloudflare 525, #308), which also blocks issuance.
-      terminatesTlsLocally: true,
-      targetUrl: deployedUrl,
+    await withMailVpsPlatform(mailServer.serverId, project.organizationId, async (platform) => {
+      await platform.routing.registerRoute({
+        domain: mailHostname(mailServer.domain),
+        tls: true,
+        // We issue this host's cert right below, so the edge must keep a :443
+        // listener up meanwhile — a routed host with no TLS listener refuses
+        // the handshake (Cloudflare 525, #308), which also blocks issuance.
+        terminatesTlsLocally: true,
+        targetUrl: deployedUrl,
+      });
+      // The mail box already holds certs for IMAP/SMTP; this adds the HTTPS
+      // one for the webmail UI, through the same Let's Encrypt feature.
+      await platform.ssl.provisionCert(mailHostname(mailServer.domain));
     });
-    // The mail box already holds certs for IMAP/SMTP; this adds the HTTPS
-    // one for the webmail UI, through the same Let's Encrypt feature.
-    await platform.ssl.provisionCert(mailHostname(mailServer.domain));
   } catch (err) {
     console.warn(
       `[webmail] could not front mail.<domain> for project ${project.id}: ${safeErrorMessage(err)}`,
@@ -758,8 +760,9 @@ export async function cleanupWebmailInstall(project: Project): Promise<string | 
   if (rows.length > 0 || !project.cloudWorkspaceId) return null;
 
   const hostname = mailHostname(mailServer.domain);
-  const platform = await resolveMailVpsPlatform(mailServer.serverId, project.organizationId);
-  await platform.routing.removeRoute(hostname);
+  await withMailVpsPlatform(mailServer.serverId, project.organizationId, (platform) =>
+    platform.routing.removeRoute(hostname),
+  );
   return `removed ${hostname} proxy`;
 }
 
@@ -769,16 +772,18 @@ export async function cleanupWebmailInstall(project: Project): Promise<string | 
  * server is in the org; the import is dynamic to keep the mail module out of the
  * deployment runtime's import cycle.
  */
-async function resolveMailVpsPlatform(mailServerId: string, organizationId: string) {
+async function withMailVpsPlatform<T>(
+  mailServerId: string,
+  organizationId: string,
+  work: (platform: Platform) => Promise<T>,
+): Promise<T> {
   const { resolveTargetPlatform, disposePlatform } = await import("../../../lib/deployment-runtime");
   const platform = await resolveTargetPlatform("server", "bare", mailServerId, organizationId);
-  // Released here rather than at each caller, because a caller that only wants `.routing`
-  // is exactly the one that forgets: `createPlatform` builds its runtime EAGERLY, so an
-  // SSH one has already bound a loopback bridge that only `dispose()` closes. A no-op
-  // while this is `"bare"` — and disposal only releases `runtime`, never the pooled
-  // `executor` that `.routing`/`.ssl` drive through, so both stay usable after it.
-  disposePlatform(platform);
-  return platform;
+  try {
+    return await work(platform);
+  } finally {
+    disposePlatform(platform);
+  }
 }
 
 // ─── Legacy (pre-catalog) webmail ────────────────────────────────────────────

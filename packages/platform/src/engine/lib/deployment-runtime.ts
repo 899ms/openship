@@ -1157,12 +1157,9 @@ type PlatformDisposableField = {
  */
 const PLATFORM_DISPOSAL: Record<PlatformDisposableField, "release" | { keep: string }> = {
   runtime: "release",
-  // NEVER released. `executor` is the pooled per-server SSH executor that
-  // `sshManager` owns and that concurrent deploys, routing applies and cert
-  // issuance on that box all share — disposing it here would tear the transport out
-  // from under every one of them, and the three `.ssl`-only sites in domain-ssl.ts
-  // depend on surviving exactly this call. The runtime's Docker-over-SSH bridge is a
-  // per-resolve loopback listener, which is why that one is ours to close.
+  // The pool owns the executor; disposing it directly would disconnect other
+  // borrowers. Runtime disposal releases this platform's hold on that connection,
+  // so all routing/SSL/executor work must finish before disposing the platform.
   executor: { keep: "pooled per server by sshManager; shared with concurrent work" },
 };
 

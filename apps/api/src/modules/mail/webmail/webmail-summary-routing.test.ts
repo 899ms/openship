@@ -46,6 +46,11 @@ const h = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>> | null,
   /** Service rows, consulted only when the project has no domain row at all. */
   services: [] as Array<Record<string, unknown>>,
+  resolveTargetPlatform: vi.fn(),
+  disposePlatform: vi.fn(),
+  registerRoute: vi.fn(),
+  provisionCert: vi.fn(),
+  removeRoute: vi.fn(),
 }));
 
 vi.mock("@repo/db", () => ({
@@ -54,7 +59,10 @@ vi.mock("@repo/db", () => ({
       findById: vi.fn(async (id: string) => (h.project?.id === id ? h.project : null)),
       findFirstBySlug: vi.fn(async () => null),
     },
-    mailServer: { setWebmailProject: vi.fn(async () => {}) },
+    mailServer: {
+      setWebmailProject: vi.fn(async () => {}),
+      findByWebmailProject: vi.fn(async () => MAIL_SERVER),
+    },
     service: { listByProject: vi.fn(async () => h.services) },
     deployment: { findById: vi.fn(async () => ({ id: h.project?.activeDeploymentId, projectId: h.project?.id, organizationId: "org1", status: "ready" })) },
   },
@@ -71,6 +79,10 @@ vi.mock("@repo/platform/engine/modules/domains/project-route.service", () => ({
 // an install. `pickCanonicalDomainRow` is deliberately NOT mocked — the verified/primary
 // precedence is half of what's being asserted.
 vi.mock("@repo/platform/engine/lib/ssh-manager", () => ({ sshManager: { withExecutor: vi.fn() } }));
+vi.mock("@repo/platform/engine/lib/deployment-runtime", () => ({
+  resolveTargetPlatform: h.resolveTargetPlatform,
+  disposePlatform: h.disposePlatform,
+}));
 vi.mock("@repo/platform/engine/modules/projects/project-teardown", () => ({ teardownProject: vi.fn() }));
 vi.mock("@repo/platform/engine/modules/apps/catalog-source", () => ({ getTemplateForOrg: vi.fn(async () => null) }));
 vi.mock("@repo/platform/engine/modules/apps/app-install.service", () => ({
@@ -83,12 +95,50 @@ vi.mock("@repo/platform/engine/modules/deployments/build.service", () => ({ requ
 vi.mock("@repo/platform/engine/modules/services/service.service", () => ({ updateService: vi.fn() }));
 vi.mock("@repo/platform/engine/modules/mail/mail-state", () => ({ readState: vi.fn(), mutateState: vi.fn() }));
 
-import { resolveWebmailSummary } from "@repo/platform/engine/modules/mail/webmail/webmail-install.service";
+import {
+  cleanupWebmailInstall,
+  onWebmailDeployed,
+  resolveWebmailSummary,
+} from "@repo/platform/engine/modules/mail/webmail/webmail-install.service";
 
 beforeEach(() => {
   vi.clearAllMocks();
   h.project = CLOUD_WEBMAIL;
   h.rows = [];
+  h.registerRoute.mockReset().mockResolvedValue(undefined);
+  h.provisionCert.mockReset().mockResolvedValue(undefined);
+  h.removeRoute.mockReset().mockResolvedValue(undefined);
+  h.resolveTargetPlatform.mockResolvedValue({
+    routing: { registerRoute: h.registerRoute, removeRoute: h.removeRoute },
+    ssl: { provisionCert: h.provisionCert },
+  });
+});
+
+describe("webmail proxy platform lifetime", () => {
+  it.each([
+    ["registerRoute", false], ["provisionCert", false], ["removeRoute", false],
+    ["registerRoute", true], ["provisionCert", true], ["removeRoute", true],
+  ] as const)("keeps %s connected until it settles (failure: %s)", async (operation, fail) => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    h[operation].mockImplementationOnce(async () => {
+      await gate;
+      if (fail) throw new Error("proxy operation failed");
+    });
+    const pending = operation === "removeRoute"
+      ? cleanupWebmailInstall(CLOUD_WEBMAIL as never)
+      : onWebmailDeployed(CLOUD_WEBMAIL, "https://webmail.opsh.io");
+    await vi.waitFor(() => expect(h[operation]).toHaveBeenCalledOnce());
+    expect(h.disposePlatform).not.toHaveBeenCalled();
+    finish();
+    if (fail && operation === "removeRoute") {
+      await expect(pending).rejects.toThrow("proxy operation failed");
+    } else {
+      await pending;
+    }
+    expect(h.resolveTargetPlatform).toHaveBeenCalledWith("server", "bare", "srv1", "org1");
+    expect(h.disposePlatform).toHaveBeenCalledOnce();
+  });
 });
 
 describe("webmail summary routing", () => {

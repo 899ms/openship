@@ -162,13 +162,14 @@ export async function removeProjectFromServerManifests(project: Project): Promis
       const resolved = await resolveDeploymentPlatform(meta, {
         organizationId: dep.organizationId,
       });
-      // Only the executor is wanted (which sshManager owns), so the docker
-      // transport this eagerly bound can go straight back.
-      disposePlatform(resolved);
-      const exec = resolved.platform.executor;
-      if (exec) {
-        await removeProjectFromManifest(exec, project.id);
-        await removeProjectSnapshot(exec, project.id).catch(() => {});
+      try {
+        const exec = resolved.platform.executor;
+        if (exec) {
+          await removeProjectFromManifest(exec, project.id);
+          await removeProjectSnapshot(exec, project.id).catch(() => {});
+        }
+      } finally {
+        disposePlatform(resolved);
       }
     } catch {
       // Server unreachable — fine; the reconcile cross-check (no running
