@@ -1,11 +1,13 @@
 "use client";
 
+import { Icon as UiIcon, type IconName } from "@repo/ui/icons";
+
 import React, { useLayoutEffect, useRef } from "react";
 
 export interface TabDef<K extends string = string> {
   key: K;
   label: string;
-  icon?: React.ComponentType<{ className?: string }>;
+  icon?: IconName;
   /** Live status or other leading content in place of a static icon. */
   leading?: React.ReactNode;
   /** Badge after the label — how many rows this tab holds. `0` still renders. */
@@ -27,6 +29,7 @@ interface TabsProps<K extends string> {
   onChange: (key: K) => void;
   className?: string;
   size?: "sm" | "md";
+  /** Distribute padded tabs evenly across the available width. */
   fullWidth?: boolean;
   /** Local tab panels use `${idPrefix}-panel-${key}` and are labelled by
    *  `${idPrefix}-tab-${key}`. Enables tab semantics and keyboard navigation. */
@@ -94,19 +97,19 @@ export function Tabs<K extends string>({
   };
 
   return (
-    <div ref={stripRef} role={localPanels ? "tablist" : undefined} aria-label={ariaLabel} className={`flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border/50 scrollbar-hide ${className}`}>
+    <div ref={stripRef} role={localPanels ? "tablist" : undefined} aria-label={ariaLabel} className={`flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border/50 scrollbar-hide ${fullWidth ? "justify-between" : ""} ${className}`}>
       {visibleTabs.map(({ key, label, icon: Icon, leading, href, count }) => {
         const active = key === value;
-        const className = `relative inline-flex shrink-0 items-center gap-2 whitespace-nowrap py-2.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${fullWidth ? "grow basis-0 justify-center" : ""} ${size === "sm" ? "px-3 text-[13px]" : "px-4 text-sm"} ${
+        const className = `relative inline-flex shrink-0 items-center gap-2 whitespace-nowrap py-2.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${size === "sm" ? "px-3 text-xs" : "px-4 text-sm"} ${
           active ? "text-foreground" : "text-muted-foreground hover:text-foreground/70"
         }`;
         const inner = (
           <>
-            {leading ?? (Icon && <Icon className="size-4" />)}
+            {leading ?? (Icon && <UiIcon name={Icon} className="size-4" />)}
             {label}
             {count !== undefined && (
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+                className={`rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums ${
                   active ? "bg-muted text-foreground" : "bg-muted/60 text-muted-foreground"
                 }`}
               >
@@ -114,11 +117,7 @@ export function Tabs<K extends string>({
               </span>
             )}
             {active && (
-              // Match the item's horizontal padding, so the underline is as
-              // wide as the label it marks. That also puts the FIRST tab's
-              // underline on the container's content edge instead of a padding
-              // box's worth to the left of it — inside a card, an indicator that
-              // starts left of every other left edge reads as a misalignment.
+              // Align the underline with the label inside the tab's padding.
               <span className={`absolute bottom-0 h-0.5 rounded-full bg-primary ${size === "sm" ? "start-3 end-3" : "start-4 end-4"}`} />
             )}
           </>

@@ -24,6 +24,7 @@ export const UpdateBackupPolicySchema = Type.Object({
 export const ListBackupRunsSchema = Type.Object({
   serviceId: Type.Optional(Type.String({ minLength: 1 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
 });
+export const RunBackupPolicySchema = Type.Object({ serviceId: Type.Optional(Type.String({ minLength: 1 })) });
 export const ProtectBackupRunSchema = Type.Object({ until: Type.Optional(Type.String()), protected: Type.Optional(Type.Boolean()) });
 export const PrepareBackupRestoreSchema = Type.Object({
   mode: Type.Optional(Type.Union([Type.Literal("in_place"), Type.Literal("to_fork")])),
@@ -79,7 +80,7 @@ export const BackupProjectSchemas = {
 export const BackupPolicySchemas = {
   updatePolicy: { action: "write", input: UpdateBackupPolicySchema, output: BackupPolicySchema },
   removePolicy: { action: "write", output: ok },
-  run: { action: "write", output: Type.Object({ runId: Type.String() }) },
+  run: { action: "write", input: RunBackupPolicySchema, optionalInput: true, output: Type.Object({ runId: Type.String(), runIds: Type.Optional(Type.Array(Type.String())) }) },
 } as const satisfies Record<string, ResourceOperationSchema>;
 export const BackupRunSchemas = {
   getRun: { action: "read", output: BackupRunSchema },

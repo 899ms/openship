@@ -1,7 +1,8 @@
 "use client";
 
+import { Icon as UiIcon } from "@repo/ui/icons";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FolderGit2, Loader2 } from "lucide-react";
 
 import ComposeSidebar from "./ComposeSidebar";
 import BuildTerminal from "../BuildTerminal";
@@ -179,7 +180,7 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
 
     const modalId = showModal({
       title,
-      icon: "error%20triangle-16-1662499385.png",
+      icon: "warning",
       customContent: (
         <div className="p-6 space-y-5">
           <div className="space-y-2">
@@ -656,9 +657,9 @@ function ComposeServiceLogsPanel({
           return {
             key: tab.id,
             label: tab.label,
-            leading: tab.id === PREPARE_TAB ? <FolderGit2 className="size-4 shrink-0" aria-hidden /> : (
+            leading: tab.id === PREPARE_TAB ? <UiIcon name="folder-code" className="size-4 shrink-0" aria-hidden /> : (
               <span className="inline-flex size-4 shrink-0 items-center justify-center" role="img" aria-label={t.importProject.serviceStatus[status ?? "pending"]}>
-                {status === "building" || status === "deploying" ? <Loader2 className="size-3.5 animate-spin text-info" aria-hidden /> : <span className={`size-1.5 rounded-full ${statusDotClass(status)}`} />}
+                {status === "building" || status === "deploying" ? <UiIcon name="spinner" className="size-3.5 animate-spin text-info" aria-hidden /> : <span className={`size-1.5 rounded-full ${statusDotClass(status)}`} />}
               </span>
             ),
           };
@@ -853,7 +854,7 @@ function PartialSuccessModalContent({
         >
           {isRejecting ? (
             <span className="inline-flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <UiIcon name="spinner" className="w-4 h-4 animate-spin" />
               {p.rejecting}
             </span>
           ) : (
@@ -875,7 +876,7 @@ function PartialSuccessModalContent({
         >
           {isRetrying ? (
             <span className="inline-flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <UiIcon name="spinner" className="w-4 h-4 animate-spin" />
               {p.retrying}
             </span>
           ) : (

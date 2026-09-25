@@ -1,9 +1,10 @@
 "use client";
 
+import { Icon as UiIcon } from "@repo/ui/icons";
+
 import { useId, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ChevronDown, ExternalLink, Loader2, RotateCcw, SlidersHorizontal, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DismissiblePopover } from "@/components/ui/Popover";
 import { useI18n } from "@/components/i18n-provider";
@@ -25,7 +26,7 @@ function OpenDeploymentSite({ sites }: { sites: DeploymentSite[] }) {
     return (
       <Button asChild className="w-full sm:w-auto">
         <a href={`https://${sites[0].hostname}`} target="_blank" rel="noopener noreferrer">
-          {copy.openSite}<ExternalLink />
+          {copy.openSite}<UiIcon name="external-link" />
         </a>
       </Button>
     );
@@ -36,7 +37,7 @@ function OpenDeploymentSite({ sites }: { sites: DeploymentSite[] }) {
       <Button ref={triggerRef} type="button" className="w-full sm:w-auto" aria-label={copy.openSite} aria-expanded={open} aria-controls={open ? listId : undefined} onClick={() => setOpen(value => !value)}>
         {copy.openSite}
         <span aria-hidden className="tabular-nums">{sites.length}</span>
-        <ChevronDown />
+        <UiIcon name="chevron-down" />
       </Button>
       {open && (
         <nav id={listId} aria-label={copy.detailDomains} className="absolute end-0 z-50 mt-2 w-full max-w-[calc(100vw-2rem)] rounded-2xl bg-popover p-2 shadow-[var(--th-dropdown-shadow)] sm:w-80" onKeyDown={event => {
@@ -50,7 +51,7 @@ function OpenDeploymentSite({ sites }: { sites: DeploymentSite[] }) {
                     <span className="block break-all font-medium text-foreground">{site.hostname}</span>
                     {site.serviceNames.length > 0 && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{site.serviceNames.join(" · ")}</span>}
                   </span>
-                  <ExternalLink className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <UiIcon name="external-link" className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 </a>
               </li>
             ))}
@@ -91,18 +92,18 @@ export function DeploymentActions({ onRedeploy }: { onRedeploy: () => void | Pro
     <div className="flex w-full flex-wrap items-center gap-2 sm:ms-auto sm:w-auto sm:justify-end">
       {working || state.cancellationPending ? (
         <Button type="button" variant="secondary" className="w-full text-danger sm:w-auto" onClick={stopDeployment} disabled={state.isStopping || state.cancellationPending}>
-          {state.isStopping || state.cancellationPending ? <Loader2 className="animate-spin" /> : <Square />}
+          {state.isStopping || state.cancellationPending ? <UiIcon name="spinner" className="animate-spin" /> : <UiIcon name="square" />}
           {state.isStopping || state.cancellationPending ? copy.stopping : copy.stopDeployment}
         </Button>
       ) : (
         <>
           <Button type="button" variant={deploymentStatus === "ready" && sites.length === 0 ? "default" : "secondary"} className="grow sm:grow-0" onClick={openProject} disabled={!projectId}>
-            {copy.openProject}<ArrowRight className="rtl:rotate-180" />
+            {copy.openProject}<UiIcon name="arrow-right" className="rtl:rotate-180" />
           </Button>
           <DeploymentConfigurationAction className="grow sm:grow-0" />
           {deploymentStatus === "ready" ? <OpenDeploymentSite sites={sites} /> : (
             <Button type="button" className="w-full sm:w-auto" disabled={redeploying} onClick={retry}>
-              {redeploying ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+              {redeploying ? <UiIcon name="spinner" className="animate-spin" /> : <UiIcon name="rotate-left" />}
               {redeploying ? copy.redeploying : copy.redeploy}
             </Button>
           )}
@@ -128,7 +129,7 @@ export function DeploymentConfigurationAction({ className }: { className?: strin
   return (
     <Button asChild variant="secondary" className={className}>
       <Link href={`/deploy/${slug}?${params.toString()}`}>
-        <SlidersHorizontal />
+        <UiIcon name="sliders" />
         {t.importProject.composeDeployment.editConfiguration}
       </Link>
     </Button>

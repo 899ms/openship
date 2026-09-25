@@ -1,10 +1,12 @@
 "use client";
 
-import React from "react";
-import { CheckCircle2, XCircle, Loader2, Activity } from "lucide-react";
+import { Icon as UiIcon } from "@repo/ui/icons";
+
+import React, { useEffect, useRef } from "react";
 import { useBackupRunStream } from "@/hooks/useBackupRunStream";
-import { useI18n, interpolate } from "@/components/i18n-provider";
+import { useI18n } from "@/components/i18n-provider";
 import type { BackupRun } from "@/lib/api";
+import { BackupStreamNotice } from "./BackupStreamNotice";
 
 type RunCardDict = ReturnType<typeof useI18n>["t"]["widgets"]["backup"]["runCard"];
 
@@ -15,35 +17,39 @@ interface Props {
    *  already-known runs. */
   initial?: BackupRun;
   onClose?: () => void;
+  onComplete?: () => void | Promise<void>;
 }
 
-export function BackupRunCard({ runId, initial }: Props): React.JSX.Element {
-  const { run: streamed, connected, error } = useBackupRunStream(runId);
+export function BackupRunCard({ runId, initial, onComplete }: Props): React.JSX.Element {
+  const stream = useBackupRunStream(runId);
+  const { run: streamed, connected } = stream;
   const { t } = useI18n();
   const w = t.widgets.backup.runCard;
   const run = streamed ?? initial ?? null;
+  const completedRun = useRef<string | null>(null);
 
-  if (error && !run) {
-    return (
-      <div className="rounded-2xl border border-danger-border bg-danger-bg p-4 text-sm text-danger">
-        {interpolate(w.streamError, { message: error.message })}
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!streamed || streamed.id !== runId || completedRun.current === runId) return;
+    if (!["succeeded", "failed", "cancelled", "server_error"].includes(streamed.status)) return;
+    completedRun.current = runId;
+    void onComplete?.();
+  }, [streamed, runId, onComplete]);
+
   if (!run) {
     return (
       <div className="rounded-2xl border border-border/50 bg-card p-4 text-sm text-muted-foreground">
         {w.loading}
+        <BackupStreamNotice stream={stream} />
       </div>
     );
   }
 
   const inFlight = !["succeeded", "failed", "cancelled", "server_error"].includes(run.status);
   const StatusIcon = run.status === "succeeded"
-    ? CheckCircle2
+    ? "check-circle"
     : ["failed", "server_error", "cancelled"].includes(run.status)
-      ? XCircle
-      : Loader2;
+      ? "x-circle"
+      : "spinner";
   const color =
     run.status === "succeeded"
       ? "text-success"
@@ -55,7 +61,7 @@ export function BackupRunCard({ runId, initial }: Props): React.JSX.Element {
     <div className="rounded-2xl border border-border/50 bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <StatusIcon className={`size-4 ${color} ${inFlight ? "animate-spin" : ""}`} />
+          <UiIcon name={StatusIcon} className={`size-4 ${color} ${inFlight ? "animate-spin" : ""}`} />
           <span className={`text-sm font-medium ${color}`}>{labelFor(run.status, w)}</span>
           <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
             {run.triggeredBy}
@@ -63,11 +69,13 @@ export function BackupRunCard({ runId, initial }: Props): React.JSX.Element {
         </div>
         {connected && inFlight && (
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Activity className="size-3 animate-pulse" />
+            <UiIcon name="activity" className="size-3 animate-pulse" />
             {w.live}
           </span>
         )}
       </div>
+
+      <BackupStreamNotice stream={stream} />
 
       <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
         <Stat label={w.started} value={new Date(run.startedAt).toLocaleString()} />

@@ -1,21 +1,8 @@
 "use client";
 
+import { Icon as UiIcon, type IconName } from "@repo/ui/icons";
+
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  Plus,
-  RefreshCw,
-  Trash2,
-  CheckCircle2,
-  AlertCircle,
-  Cloud,
-  HardDrive,
-  Server,
-  Loader2,
-  Pencil,
-  Star,  Database,
-  Clock,
-  ArrowRight,
-} from "lucide-react";
 import Link from "next/link";
 import {
   backupDestinationsApi,
@@ -135,7 +122,7 @@ export default function BackupsPage() {
             onClick={() => setModalOpen(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:bg-primary/90 transition-all hover:shadow-lg hover:shadow-primary/25"
           >
-            <Plus className="size-4" />
+            <UiIcon name="plus" className="size-4" />
             {m.addDestination}
           </button>
         )}
@@ -143,7 +130,7 @@ export default function BackupsPage() {
 
       {loading && items.length === 0 ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <UiIcon name="spinner" className="size-5 animate-spin text-muted-foreground" />
         </div>
       ) : items.length === 0 ? (
         <EmptyState onAdd={() => setModalOpen(true)} />
@@ -155,13 +142,13 @@ export default function BackupsPage() {
         <div className="bg-card rounded-2xl border border-border/50">
           <ul className="divide-y divide-border/50">
             {items.map((row) => {
-              const Icon = KIND_ICONS[row.kind] ?? Cloud;
+              const Icon = KIND_ICONS[row.kind] ?? "cloud";
               const actions: MenuAction[] = [];
               if (EDITABLE_KINDS.has(row.kind)) {
                 actions.push({
                   id: "edit",
                   label: m.editAction,
-                  icon: <Pencil className="size-4" />,
+                  icon: <UiIcon name="edit" className="size-4" />,
                   onClick: () => setEditing(row),
                 });
               }
@@ -169,7 +156,7 @@ export default function BackupsPage() {
                 actions.push({
                   id: "default",
                   label: m.setDefaultAction,
-                  icon: <Star className="size-4" />,
+                  icon: <UiIcon name="star" className="size-4" />,
                   onClick: () => handleSetDefault(row),
                 });
               }
@@ -177,7 +164,7 @@ export default function BackupsPage() {
               actions.push({
                 id: "delete",
                 label: m.deleteAction,
-                icon: <Trash2 className="size-4" />,
+                icon: <UiIcon name="trash" className="size-4" />,
                 variant: "danger",
                 onClick: () => setDeleting(row),
               });
@@ -192,7 +179,7 @@ export default function BackupsPage() {
                     className="absolute inset-0 z-0"
                   />
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted/50 text-muted-foreground">
-                    <Icon className="size-4" />
+                    <UiIcon name={Icon} className="size-4" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -202,13 +189,13 @@ export default function BackupsPage() {
                           className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
                           title={m.defaultTitle}
                         >
-                          <Star className="size-3 fill-current" />
+                          <UiIcon name="star" className="size-3" />
                           {m.defaultBadge}
                         </span>
                       )}
                       {verifyingIds.has(row.id) ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                          <Loader2 className="size-3 animate-spin" />
+                          <UiIcon name="spinner" className="size-3 animate-spin" />
                           {m.verifyingBadge}
                         </span>
                       ) : row.lastVerifiedAt ? (
@@ -216,7 +203,7 @@ export default function BackupsPage() {
                           className="inline-flex items-center gap-1 rounded-full bg-success-bg px-2 py-0.5 text-[11px] font-medium text-success"
                           title={interpolate(m.lastVerified, { date: new Date(row.lastVerifiedAt).toLocaleString() })}
                         >
-                          <CheckCircle2 className="size-3" />
+                          <UiIcon name="check-circle" className="size-3" />
                           {m.verifiedBadge}
                         </span>
                       ) : row.lastVerifyError ? (
@@ -224,7 +211,7 @@ export default function BackupsPage() {
                           className="inline-flex items-center gap-1 rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-medium text-danger"
                           title={row.lastVerifyError}
                         >
-                          <AlertCircle className="size-3" />
+                          <UiIcon name="alert-circle" className="size-3" />
                           {m.failedBadge}
                         </span>
                       ) : (
@@ -267,13 +254,13 @@ export default function BackupsPage() {
                       title={m.verifyConnection}
                     >
                       {verifyingIds.has(row.id) ? (
-                        <Loader2 className="size-4 animate-spin" />
+                        <UiIcon name="spinner" className="size-4 animate-spin" />
                       ) : (
-                        <RefreshCw className="size-4" />
+                        <UiIcon name="refresh" className="size-4" />
                       )}
                     </button>
                     <DropdownMenu align="right" actions={actions} />
-                    <ArrowRight className="size-4 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground/60 rtl:rotate-180" />
+                    <UiIcon name="arrow-right" className="size-4 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground/60 rtl:rotate-180" />
                   </div>
                 </li>
               );
@@ -287,13 +274,13 @@ export default function BackupsPage() {
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-2xl border border-border/50 bg-card p-5">
             <div className="mb-4 flex items-center gap-2">
-              <HardDrive className="size-4 text-muted-foreground" />
+              <UiIcon name="hard-drive" className="size-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">{m.summaryTitle}</h3>
             </div>
             <div className="space-y-3">
-              <StatRow icon={Database} label={m.summaryStored} value={formatBytes(items.reduce((n, d) => n + (d.stats?.storedBytes ?? 0), 0))} />
-              <StatRow icon={Clock} label={m.summaryBackups} value={String(items.reduce((n, d) => n + (d.stats?.runCount ?? 0), 0))} />
-              <StatRow icon={Server} label={m.summaryDestinations} value={String(items.length)} />
+              <StatRow icon={"database"} label={m.summaryStored} value={formatBytes(items.reduce((n, d) => n + (d.stats?.storedBytes ?? 0), 0))} />
+              <StatRow icon={"clock"} label={m.summaryBackups} value={String(items.reduce((n, d) => n + (d.stats?.runCount ?? 0), 0))} />
+              <StatRow icon={"server"} label={m.summaryDestinations} value={String(items.length)} />
             </div>
           </div>
         </div>
@@ -331,7 +318,7 @@ export default function BackupsPage() {
           <div className="p-6">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-danger-bg">
-                <Trash2 className="size-5 text-danger" />
+                <UiIcon name="trash" className="size-5 text-danger" />
               </div>
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-foreground">
@@ -358,9 +345,9 @@ export default function BackupsPage() {
                 className="h-10 inline-flex items-center gap-2 rounded-xl bg-danger-solid px-5 text-sm font-medium text-white transition-colors hover:bg-danger-solid/90 disabled:opacity-50"
               >
                 {deleteBusy ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <UiIcon name="spinner" className="size-4 animate-spin" />
                 ) : (
-                  <Trash2 className="size-4" />
+                  <UiIcon name="trash" className="size-4" />
                 )}
                 {m.deleteAction}
               </button>
@@ -379,12 +366,12 @@ function StatRow({
 }: {
   label: string;
   value: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: IconName;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="size-4 shrink-0" />
+        <UiIcon name={Icon} className="size-4 shrink-0" />
         <span className="truncate">{label}</span>
       </div>
       <span className="shrink-0 text-sm font-semibold text-foreground">{value}</span>
@@ -533,7 +520,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
           onClick={onAdd}
           className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:bg-primary/90 transition-all hover:shadow-lg hover:shadow-primary/25 hover:-translate-y-0.5"
         >
-          <Plus className="size-4" />
+          <UiIcon name="plus" className="size-4" />
           {m.addFirst}
         </button>
       </div>
@@ -544,9 +531,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
           {m.supportedTitle}
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <KindCard icon={Cloud} label={m.kindS3} sub={m.cardS3Sub} />
-          <KindCard icon={Server} label={m.kindSftp} sub={m.cardSftpSub} />
-          <KindCard icon={Server} label={m.kindServer} sub={m.cardServerSub} />
+          <KindCard icon={"cloud"} label={m.kindS3} sub={m.cardS3Sub} />
+          <KindCard icon={"server"} label={m.kindSftp} sub={m.cardSftpSub} />
+          <KindCard icon={"server"} label={m.kindServer} sub={m.cardServerSub} />
         </div>
       </div>
     </div>
@@ -558,14 +545,14 @@ function KindCard({
   label,
   sub,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: IconName;
   label: string;
   sub: string;
 }) {
   return (
     <div className="bg-card border border-border/50 rounded-xl p-4 text-start">
       <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-        <Icon className="size-4 text-muted-foreground" />
+        <UiIcon name={Icon} className="size-4 text-muted-foreground" />
       </div>
       <p className="text-sm font-medium text-foreground">{label}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>

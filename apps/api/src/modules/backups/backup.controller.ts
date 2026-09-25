@@ -20,7 +20,7 @@ export async function removePolicy(c: Context) {
   return c.json({ data: await operationData(c, backups().removePolicy(getRequestContext(c), param(c, "policyId"))) });
 }
 export async function triggerManual(c: Context) {
-  return c.json({ data: await operationData(c, backups().run(getRequestContext(c), param(c, "policyId"))) });
+  return c.json({ data: await operationData(c, backups().run(getRequestContext(c), param(c, "policyId"), await c.req.json().catch(() => ({})))) });
 }
 export async function listRuns(c: Context) {
   const limit = c.req.query("limit");

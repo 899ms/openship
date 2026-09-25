@@ -1,5 +1,5 @@
+import type { IconName } from "@repo/ui/icons";
 import React from "react";
-import { Cloud, Server, HardDrive } from "lucide-react";
 import type { BackupDestinationSummary } from "@/lib/api";
 
 /** Shared destination presentation — kept in one place so the list page and the
@@ -8,13 +8,13 @@ import type { BackupDestinationSummary } from "@/lib/api";
 
 export const KIND_ICONS: Record<
   BackupDestinationSummary["kind"],
-  React.ComponentType<{ className?: string }>
+  IconName
 > = {
-  s3_compatible: Cloud,
-  sftp: Server,
-  openship_server: Server,
-  local: HardDrive,
-  http_upload: Cloud,
+  s3_compatible: "cloud",
+  sftp: "server",
+  openship_server: "server",
+  local: "hard-drive",
+  http_upload: "cloud",
 };
 
 // Kinds the create/edit form can configure. Others (e.g. http_upload) exist via

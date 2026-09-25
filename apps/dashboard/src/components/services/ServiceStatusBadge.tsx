@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Icon as UiIcon } from "@repo/ui/icons";
+
 import { useI18n } from "@/components/i18n-provider";
 import type { Service, ServiceContainer } from "@/lib/api/services";
 
@@ -62,7 +63,7 @@ export function ServiceStatusBadge({ status }: { status: string }) {
       className={`inline-flex items-center gap-1.5 text-xs font-medium ${shown.text}`}
     >
       {status === "checking" ? (
-        <Loader2 aria-hidden="true" className="size-2.5 animate-spin" />
+        <UiIcon name="spinner" aria-hidden="true" className="size-2.5 animate-spin" />
       ) : (
         <span aria-hidden="true" className={`size-2.5 rounded-full border-2 ${shown.ring}`} />
       )}

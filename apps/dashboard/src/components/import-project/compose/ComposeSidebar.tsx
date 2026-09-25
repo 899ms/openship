@@ -1,7 +1,8 @@
 "use client";
 
+import { Icon as UiIcon } from "@repo/ui/icons";
+
 import React, { memo } from "react";
-import { Clock, Cloud, Container, Hammer, Server } from "lucide-react";
 import { useDeployment } from "@/context/DeploymentContext";
 import { composeServiceTally } from "@/context/deployment/types";
 import { useBuildElapsedMs } from "@/context/deployment/useBuildElapsedMs";
@@ -46,7 +47,7 @@ const ComposeSidebar: React.FC = () => {
   const total = services.length;
   const { running, built, building, failed } = composeServiceTally(services);
 
-  const TargetIcon = config.deployTarget === "cloud" ? Cloud : Server;
+  const TargetIcon = config.deployTarget === "cloud" ? "cloud" : "server";
 
   return (
     <div className="rounded-2xl bg-card p-5">
@@ -56,7 +57,7 @@ const ComposeSidebar: React.FC = () => {
             screen that couldn't answer "which machine am I deploying to". */}
         <Row label={sb.rowTarget}>
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            <TargetIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+            <UiIcon name={TargetIcon} className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
             <DeployTargetValue config={config} className="truncate" />
           </span>
         </Row>
@@ -65,14 +66,14 @@ const ComposeSidebar: React.FC = () => {
             can still build locally), and the one that explains a slow deploy. */}
         <Row label={sb.rowBuild}>
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            <Hammer className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+            <UiIcon name="wrench" className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{describeBuildStrategy(config, t)}</span>
           </span>
         </Row>
 
         <Row label={sb.rowBuildTime}>
           <span className="inline-flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+            <UiIcon name="clock" className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
             {elapsedMs === null ? "—" : formatTime(Math.round(elapsedMs / 1000))}
           </span>
         </Row>
@@ -106,7 +107,7 @@ const ComposeSidebar: React.FC = () => {
 
         <Row label={sb.rowType}>
           <span className="inline-flex items-center gap-1.5">
-            <Container className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+            <UiIcon name="docker" className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
             Compose
           </span>
         </Row>

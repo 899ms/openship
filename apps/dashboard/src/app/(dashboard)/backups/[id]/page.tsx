@@ -1,21 +1,10 @@
 "use client";
 
+import { Icon as UiIcon, type IconName } from "@repo/ui/icons";
+
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import {
-  ArrowLeft,
-  ArrowRight,
-  RefreshCw,
-  Pencil,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Loader2,  Database,
-  Clock,
-  HardDrive,
-  Star,
-} from "lucide-react";
 import {
   backupDestinationsApi,
   getApiErrorMessage,
@@ -87,7 +76,7 @@ export default function BackupDestinationDetailPage() {
     return (
       <PageContainer>
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <UiIcon name="spinner" className="size-5 animate-spin text-muted-foreground" />
         </div>
       </PageContainer>
     );
@@ -98,13 +87,13 @@ export default function BackupDestinationDetailPage() {
       <PageContainer>
         <div className="flex min-h-[60vh] items-center justify-center">
           <ResourceNotFound
-            icon={<HardDrive className="size-7" />}
+            icon={<UiIcon name="hard-drive" className="size-7" />}
             title={m.notFound}
             actions={[
               {
                 href: "/backups",
                 label: m.title,
-                icon: <ArrowLeft className="size-4 rtl:rotate-180" />,
+                icon: <UiIcon name="arrow-left" className="size-4 rtl:rotate-180" />,
               },
             ]}
           />
@@ -113,7 +102,7 @@ export default function BackupDestinationDetailPage() {
     );
   }
 
-  const Icon = KIND_ICONS[dest.kind] ?? HardDrive;
+  const Icon = KIND_ICONS[dest.kind] ?? "hard-drive";
   const canEdit = EDITABLE_KINDS.has(dest.kind);
   const policies = usage.policies;
 
@@ -121,7 +110,7 @@ export default function BackupDestinationDetailPage() {
     <PageContainer>
       {/* Back */}
       <Link href="/backups" className="mb-5 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-4 rtl:rotate-180" /> {m.title}
+        <UiIcon name="arrow-left" className="size-4 rtl:rotate-180" /> {m.title}
       </Link>
 
       {/* Header card */}
@@ -129,14 +118,14 @@ export default function BackupDestinationDetailPage() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-4">
             <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border/40 bg-foreground/[0.05]">
-              <Icon className="size-5 text-foreground/70" />
+              <UiIcon name={Icon} className="size-5 text-foreground/70" />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-lg font-semibold text-foreground">{dest.name}</h1>
                 {dest.isDefault && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                    <Star className="size-3 fill-current" /> {m.defaultBadge}
+                    <UiIcon name="star" className="size-3" /> {m.defaultBadge}
                   </span>
                 )}
                 <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
@@ -144,11 +133,11 @@ export default function BackupDestinationDetailPage() {
                 </span>
                 {dest.lastVerifiedAt ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-success-bg px-2 py-0.5 text-[11px] font-medium text-success">
-                    <CheckCircle2 className="size-3" /> {m.verifiedBadge}
+                    <UiIcon name="check-circle" className="size-3" /> {m.verifiedBadge}
                   </span>
                 ) : dest.lastVerifyError ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-danger-bg px-2 py-0.5 text-[11px] font-medium text-danger" title={dest.lastVerifyError}>
-                    <AlertCircle className="size-3" /> {m.failedBadge}
+                    <UiIcon name="alert-circle" className="size-3" /> {m.failedBadge}
                   </span>
                 ) : (
                   <span className="rounded-full bg-foreground/[0.04] px-2 py-0.5 text-[11px] font-medium text-muted-foreground/70">
@@ -166,7 +155,7 @@ export default function BackupDestinationDetailPage() {
               disabled={verifying}
               className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/[0.06] px-3 py-2 text-[13px] font-medium text-foreground transition-colors hover:bg-foreground/[0.1] disabled:opacity-50"
             >
-              {verifying ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+              {verifying ? <UiIcon name="spinner" className="size-3.5 animate-spin" /> : <UiIcon name="refresh" className="size-3.5" />}
               {m.verifyConnection}
             </button>
             {canEdit && (
@@ -174,7 +163,7 @@ export default function BackupDestinationDetailPage() {
                 onClick={() => setEditing(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/[0.06] px-3 py-2 text-[13px] font-medium text-foreground transition-colors hover:bg-foreground/[0.1]"
               >
-                <Pencil className="size-3.5" /> {m.editAction}
+                <UiIcon name="edit" className="size-3.5" /> {m.editAction}
               </button>
             )}
           </div>
@@ -234,14 +223,14 @@ export default function BackupDestinationDetailPage() {
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-2xl border border-border/50 bg-card p-5">
             <div className="mb-4 flex items-center gap-2">
-              <HardDrive className="size-4 text-muted-foreground" />
+              <UiIcon name="hard-drive" className="size-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">{m.summaryTitle}</h3>
             </div>
             <div className="space-y-3">
-              <StatRow icon={Database} label={m.summaryStored} value={formatBytes(dest.stats?.storedBytes ?? 0)} />
-              <StatRow icon={Clock} label={m.summaryBackups} value={String(dest.stats?.runCount ?? 0)} />
+              <StatRow icon={"database"} label={m.summaryStored} value={formatBytes(dest.stats?.storedBytes ?? 0)} />
+              <StatRow icon={"clock"} label={m.summaryBackups} value={String(dest.stats?.runCount ?? 0)} />
               <StatRow
-                icon={CheckCircle2}
+                icon={"check-circle"}
                 label={m.statsLast}
                 value={dest.stats?.lastRunAt ? new Date(dest.stats.lastRunAt).toLocaleDateString() : "—"}
               />
@@ -290,7 +279,7 @@ function PolicyRow({ p, m }: { p: DestinationUsagePolicy; m: Record<string, stri
       : ["failed", "server_error", "cancelled"].includes(run.status)
         ? "text-danger"
         : "text-warning";
-  const RunIcon = !run ? null : run.status === "succeeded" ? CheckCircle2 : ["failed", "server_error", "cancelled"].includes(run.status) ? XCircle : Loader2;
+  const RunIcon = !run ? null : run.status === "succeeded" ? "check-circle" : ["failed", "server_error", "cancelled"].includes(run.status) ? "x-circle" : "spinner";
 
   const inner = (
     <>
@@ -315,7 +304,7 @@ function PolicyRow({ p, m }: { p: DestinationUsagePolicy; m: Record<string, stri
           <code className="font-mono text-muted-foreground/80">{schedule}</code>
           {run && RunIcon ? (
             <span className={`inline-flex items-center gap-1 ${tone}`}>
-              · <RunIcon className={`size-3 ${tone && !["succeeded", "failed", "server_error", "cancelled"].includes(run.status) ? "animate-spin" : ""}`} />
+              · <UiIcon name={RunIcon} className={`size-3 ${tone && !["succeeded", "failed", "server_error", "cancelled"].includes(run.status) ? "animate-spin" : ""}`} />
               {run.bytesTransferred ? formatBytes(run.bytesTransferred) : ""}
               <span className="text-muted-foreground/50">{new Date(run.startedAt).toLocaleDateString()}</span>
             </span>
@@ -324,7 +313,7 @@ function PolicyRow({ p, m }: { p: DestinationUsagePolicy; m: Record<string, stri
           )}
         </div>
       </div>
-      {href && <ArrowRight className="size-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground/60 rtl:rotate-180" />}
+      {href && <UiIcon name="arrow-right" className="size-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground/60 rtl:rotate-180" />}
     </>
   );
 
@@ -348,12 +337,12 @@ function StatRow({
 }: {
   label: string;
   value: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: IconName;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="size-4 shrink-0" />
+        <UiIcon name={Icon} className="size-4 shrink-0" />
         <span className="truncate">{label}</span>
       </div>
       <span className="shrink-0 text-sm font-semibold text-foreground">{value}</span>

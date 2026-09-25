@@ -91,7 +91,7 @@ beforeEach(() => {
     },
     deploymentStatus: "ready",
     stopDeployment: mocks.stop, onTerminalReady: mocks.ready, respondToPrompt: mocks.respond,
-    steps: [{ label: "Prepare", icon: "" }, { label: "Build", icon: "" }, { label: "Deploy", icon: "" }],
+    steps: [{ label: "Prepare", icon: "server" }, { label: "Build", icon: "wrench" }, { label: "Deploy", icon: "rocket" }],
     terminalRef: { current: null },
   };
   host = document.createElement("div");

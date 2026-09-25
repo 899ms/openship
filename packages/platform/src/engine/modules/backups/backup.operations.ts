@@ -12,6 +12,7 @@ import { backupRunBus, type BackupRunEvent } from "./backup.sse";
 import { restoreRunBus, type RestoreRunEvent } from "./restore.sse";
 import { restoreOrchestrator } from "./restore.orchestrator";
 import { triggerManualBackup } from "./triggers/manual";
+import { withBackupRunLock } from "./backup-lock";
 import { presentBackupRun, presentBackupRestore, presentBackupArtifacts } from "./backup.presenters";
 import * as service from "./backup.service";
 
@@ -83,23 +84,26 @@ export const backupDependencies: BackupDependencies = {
       record(ctx, "backup_policy", id, "remove");
       return { ok: true };
     },
-    async run(ctx, id) {
+    async run(ctx, id, input = {}) {
       await policyAccess(ctx, id, "write");
-      const output = await result(() => triggerManualBackup(ctx, id));
+      const output = await result(() => triggerManualBackup(ctx, id, input.serviceId));
       record(ctx, "backup_policy", id, "run", { runId: output.runId });
-      return { runId: output.runId };
+      return output;
     },
   },
   runs: {
     getRun: async (ctx, id) => presentBackupRun(await result(() => service.getRun(ctx, id), 404)),
     async protectRun(ctx, id, input = {}) {
-      await run(ctx, id);
-      const until = input.protected === false ? null : new Date(input.until ?? "2099-12-31T23:59:59.000Z");
-      if (until && Number.isNaN(until.getTime())) throw new ValidationError("Invalid 'until' timestamp");
-      await repos.backupRun.setRetentionLock(id, until);
-      const retentionLockedUntil = until?.toISOString() ?? null;
-      record(ctx, "backup_run", id, "protect", { retentionLockedUntil });
-      return { ok: true, retentionLockedUntil };
+      return withBackupRunLock(id, async () => {
+        const source = await run(ctx, id);
+        if (source.deletedAt) throw new ValidationError("This backup has already been purged");
+        const until = input.protected === false ? null : new Date(input.until ?? "2099-12-31T23:59:59.000Z");
+        if (until && Number.isNaN(until.getTime())) throw new ValidationError("Invalid 'until' timestamp");
+        await repos.backupRun.setRetentionLock(id, until);
+        const retentionLockedUntil = until?.toISOString() ?? null;
+        record(ctx, "backup_run", id, "protect", { retentionLockedUntil });
+        return { ok: true, retentionLockedUntil };
+      });
     },
     async prepareRestore(ctx, id, input = {}) {
       const source = await run(ctx, id);

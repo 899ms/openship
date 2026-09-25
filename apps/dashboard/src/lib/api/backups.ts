@@ -156,6 +156,7 @@ export interface BackupRun {
   bytesTransferred: number | null;
   objectKeyPrefix: string | null;
   manifestKey: string | null;
+  retentionLockedUntil?: string | null;
   artifacts: unknown[];
   errorMessage: string | null;
 }
@@ -244,8 +245,8 @@ export const backupsApi = {
     api.patch<{ data: BackupPolicy }>(endpoints.backups.updatePolicy(policyId), patch),
   deletePolicy: (policyId: string) =>
     api.delete<{ data: { ok: true } }>(endpoints.backups.deletePolicy(policyId)),
-  runNow: (policyId: string) =>
-    api.post<{ data: { runId: string } }>(endpoints.backups.runNow(policyId)),
+  runNow: (policyId: string, input?: { serviceId: string }) =>
+    api.post<{ data: { runId: string; runIds?: string[] } }>(endpoints.backups.runNow(policyId), input),
   listRuns: (projectId: string, opts?: { limit?: number; serviceId?: string }) =>
     api.get<{ data: BackupRun[] }>(endpoints.backups.listRuns(projectId), {
       params: opts,

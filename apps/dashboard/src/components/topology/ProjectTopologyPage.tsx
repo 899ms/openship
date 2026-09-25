@@ -1,7 +1,8 @@
 "use client";
 
+import { Icon as UiIcon } from "@repo/ui/icons";
+
 import dynamic from "next/dynamic";
-import { GitBranch } from "lucide-react";
 import type { ReactNode } from "react";
 
 const ProjectTopology = dynamic(() => import("./ProjectTopology"), {
@@ -11,7 +12,7 @@ const ProjectTopology = dynamic(() => import("./ProjectTopology"), {
       className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
       role="status"
     >
-      <GitBranch className="size-5" />
+      <UiIcon name="topology" className="size-5" />
       Loading project topology…
     </div>
   ),
@@ -21,5 +22,10 @@ export function ProjectTopologyPage(props: {
   environmentControl: ReactNode;
   onPendingChange: (pending: boolean) => void;
 }) {
-  return <ProjectTopology {...props} />;
+  // Keep the tab's height while its existing canvas expands over the page.
+  return (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <ProjectTopology {...props} />
+    </div>
+  );
 }

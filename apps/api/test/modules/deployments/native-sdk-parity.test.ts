@@ -374,7 +374,7 @@ import { backupDestinationRoutes } from "../../../src/modules/backup-destination
 import { backupRoutes } from "../../../src/modules/backups/backup.routes";
 import { serverManagementRoutes } from "../../../src/modules/system/server-management.routes";
 import { systemManagementRoutes } from "../../../src/modules/system/system-management.routes";
-import { getInternalSetup } from "../../../src/modules/system/setup.controller";
+import { getInternalSetup, onboardingSetup } from "../../../src/modules/system/setup.controller";
 import { stopAllTunnels } from "@repo/platform/engine/lib/ssh-tunnel-manager";
 import { clearAuthModeCache } from "@repo/platform/engine/lib/auth-mode";
 import { clearProductModeCache } from "@repo/platform/engine/lib/product-mode";
@@ -2196,6 +2196,15 @@ describe("server HTTP/native parity", () => {
 describe("HTTP/native system parity", () => {
   const remote = (organizationId = "org-a") => new OpenshipClient({ baseUrl: "http://openship.test", organizationId, fetch: ((url, init) => app.request(url as string, init)) as typeof fetch });
 
+  it("refuses anonymous setup writes without the authorized local first-run posture", async () => {
+    h.servers.clear();
+    const onboarding = new Hono().post("/", onboardingSetup);
+    const res = await onboarding.request("/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sshHost: "attacker.test", tunnelToken: "injected" }) });
+    expect(res.status).toBe(404);
+    expect(h.settingsUpsert).not.toHaveBeenCalled();
+    expect(h.serverCreate).not.toHaveBeenCalled();
+  });
+
   it("preserves the host-token setup read without inventing a user session", async () => {
     h.settings = { tunnelToken: "private-host-token" };
     const internal = new Hono().get("/", getInternalSetup);
@@ -2218,14 +2227,16 @@ describe("HTTP/native system parity", () => {
   });
 
   it("does not turn organization ownership or membership into instance administration", async () => {
-    for (const role of ["owner", "member"]) {
+    for (const role of ["owner", "member", "restricted"]) {
       h.members.set("org-a:alice", { id: "member-a", role });
+      h.grants.set("org-a:alice:settings:*", { permissions: ["admin"] });
       const local = await native();
       for (const system of [local.system, remote().system]) {
         await expect(system.updateSettings({ productMode: "mail" })).rejects.toMatchObject({ statusCode: 403 });
         await expect(system.updateEmailSettings({ host: null })).rejects.toMatchObject({ statusCode: 403 });
         await expect(system.resetSettings()).rejects.toMatchObject({ statusCode: 403 });
         await expect(system.health()).rejects.toMatchObject({ statusCode: 403 });
+        await expect(system.browse({ path: "/" })).rejects.toMatchObject({ statusCode: 403 });
         await expect(system.listUntrackedEdgeSites()).rejects.toMatchObject({ statusCode: 403 });
         await expect(system.removeUntrackedEdgeSite({ hostname: "orphan.example.test" })).rejects.toMatchObject({ statusCode: 403 });
       }
@@ -2246,6 +2257,7 @@ describe("HTTP/native system parity", () => {
       expect(await system.getSettings()).toHaveProperty("configured");
       await expect(system.updateSettings({ productMode: "mail" })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(system.listUntrackedEdgeSites()).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(system.browse({ path: "/" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
     expect(h.settingsUpsert).not.toHaveBeenCalled();
   });
@@ -2354,6 +2366,7 @@ describe("HTTP/native system parity", () => {
   });
 
   it("confines native directory browsing and excludes symlinks and hidden directories", async () => {
+    h.instanceRoles.set("alice", "admin");
     vi.stubEnv("OPENSHIP_NATIVE", "true");
     const directory = await mkdtemp(join(tmpdir(), "system-parity-"));
     try {

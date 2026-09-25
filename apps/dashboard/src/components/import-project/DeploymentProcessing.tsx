@@ -1,17 +1,8 @@
 "use client";
 
+import { Icon as UiIcon, type IconName } from "@repo/ui/icons";
+
 import React, { useEffect, useCallback, memo } from "react";
-import {
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Clock,
-  Server,
-  Cloud,
-  Globe,
-  Hammer,
-  Layers,
-} from "lucide-react";
 import type { Terminal } from "@xterm/xterm";
 import BuildTerminal from "./BuildTerminal";
 import { DeploymentHeader } from "./DeploymentHeader";
@@ -45,13 +36,13 @@ function formatDurationMs(ms: number): string {
 
 /** The deployment metadata follows the project's compact label/value layout. */
 function DetailRow({ icon: Icon, label, value }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: IconName;
   label: string;
   value: React.ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 text-sm">
-      <span className="inline-flex shrink-0 items-center gap-2 text-muted-foreground"><Icon className="size-3.5" />{label}</span>
+      <span className="inline-flex shrink-0 items-center gap-2 text-muted-foreground"><UiIcon name={Icon} className="size-3.5" />{label}</span>
       <span className="min-w-0 break-words text-end text-foreground">{value}</span>
     </div>
   );
@@ -73,7 +64,7 @@ const DeploymentProcessing: React.FC<DeploymentProcessingProps> = ({ onRedeploy 
 
     const modalId = showModal({
       title,
-      icon: "error%20triangle-16-1662499385.png",
+      icon: "warning",
       customContent: (
         <div className="p-6 space-y-5">
           <div className="space-y-2">
@@ -160,7 +151,7 @@ const DeploymentProcessing: React.FC<DeploymentProcessingProps> = ({ onRedeploy 
                 return (
                   <li key={index} aria-current={current ? "step" : undefined} className="flex items-center gap-2 text-sm">
                     <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${tone}`} aria-hidden>
-                      {failed ? <XCircle className="size-4" /> : completed ? <CheckCircle2 className="size-4" /> : current ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs tabular-nums">{index + 1}</span>}
+                      {failed ? <UiIcon name="x-circle" className="size-4" /> : completed ? <UiIcon name="check-circle" className="size-4" /> : current ? <UiIcon name="spinner" className="size-4 animate-spin" /> : <span className="text-xs tabular-nums">{index + 1}</span>}
                     </span>
                     <span className={failed ? "text-danger" : completed || current ? "font-medium text-foreground" : "text-muted-foreground"}>{step.label}</span>
                   </li>
@@ -197,7 +188,7 @@ const DeploymentDetails = memo(() => {
   const sites = getDeploymentSites(config, state.serviceStatuses, baseDomain);
   const domain = sites[0]?.hostname ?? "";
   const extraEndpointCount = Math.max(0, sites.length - 1);
-  const InstanceIcon = config.deployTarget === "cloud" ? Cloud : Server;
+  const InstanceIcon = config.deployTarget === "cloud" ? "cloud" : "server";
   const domainValue = domain
     ? `${domain}${extraEndpointCount > 0 ? ` +${extraEndpointCount}` : ""}`
     : "—";
@@ -207,10 +198,10 @@ const DeploymentDetails = memo(() => {
       <h3 className="mb-4 text-sm font-normal text-foreground">{dp.detailsTitle}</h3>
       <div className="space-y-4">
         <DetailRow icon={InstanceIcon} label={dp.detailInstance} value={<DeployTargetValue config={config} />} />
-        <DetailRow icon={Hammer} label={dp.detailBuild} value={describeBuildStrategy(config, t)} />
-        <DetailRow icon={Clock} label={dp.detailBuildTime} value={<BuildTimeLabel />} />
-        <DetailRow icon={Layers} label={dp.detailFramework} value={config.framework} />
-        <DetailRow icon={Globe} label={extraEndpointCount > 0 ? dp.detailDomains : dp.detailDomain} value={domainValue} />
+        <DetailRow icon={"wrench"} label={dp.detailBuild} value={describeBuildStrategy(config, t)} />
+        <DetailRow icon={"clock"} label={dp.detailBuildTime} value={<BuildTimeLabel />} />
+        <DetailRow icon={"layers"} label={dp.detailFramework} value={config.framework} />
+        <DetailRow icon={"globe"} label={extraEndpointCount > 0 ? dp.detailDomains : dp.detailDomain} value={domainValue} />
       </div>
     </div>
   );
