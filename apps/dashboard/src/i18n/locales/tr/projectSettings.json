@@ -416,6 +416,7 @@
       "retainDays": "En fazla {days} gün"
     },
     "recent": {
+      "loadOlder": "Eski yedekleri yükle",
       "title": "Son yedeklemeler",
       "description": "Son çalıştırmalar, sonuçları ve geri yükleme seçenekleri.",
       "loading": "Yükleniyor…",

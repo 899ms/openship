@@ -24,7 +24,7 @@ export const TrafficChart: React.FC<Props> = ({
 }) => {
   const { t, locale } = useI18n();
   const labels = t.projectDetail.general.traffic;
-  const [chartType, setChartType] = useState<"bar" | "area">("area");
+  const [chartType, setChartType] = useState<"bar" | "area">("bar");
   const gradientId = useId();
   const data = useMemo(() => buildTrafficSeries(trafficData), [trafficData]);
   const timeFormat = useMemo(() => new Intl.DateTimeFormat(locale, {
@@ -78,8 +78,20 @@ export const TrafficChart: React.FC<Props> = ({
         </div>
       </div>
       {isLoading ? (
-        <div className={`flex items-center justify-center text-sm text-muted-foreground ${compact ? "h-[140px]" : "h-[220px]"}`} role="status">
-          {labels.loading}
+        <div className={compact ? "h-[140px]" : "h-[220px]"} role="status">
+          <span className="sr-only">{labels.loading}</span>
+          <div aria-hidden="true" className="flex h-full items-end gap-[3px] px-1 pb-5">
+            {Array.from({ length: 32 }, (_, i) => (
+              <div
+                key={i}
+                className="flex-1 rounded-sm bg-muted-foreground/15 animate-pulse motion-reduce:animate-none"
+                style={{
+                  height: `${18 + Math.abs(Math.sin(i * 0.7)) * 70}%`,
+                  animationDelay: `${i * 40}ms`,
+                }}
+              />
+            ))}
+          </div>
         </div>
       ) : !first || !last ? (
         <div className={`flex items-center justify-center text-center ${compact ? "h-[140px]" : "h-[220px]"}`}>

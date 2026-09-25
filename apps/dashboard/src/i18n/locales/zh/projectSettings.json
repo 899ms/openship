@@ -282,6 +282,7 @@
       "retainDays": "最多 {days} 天"
     },
     "recent": {
+      "loadOlder": "加载更早的备份",
       "title": "最近的备份",
       "description": "近期运行记录、结果和恢复选项。",
       "loading": "加载中…",

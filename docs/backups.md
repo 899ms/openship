@@ -20,6 +20,52 @@ An optional `serviceId` selects one service within a project policy; services ou
 the policy's project are rejected. Reconnecting a progress stream never starts a
 second backup.
 
+Recent backups and destinations appear above policies. History loads ten runs at a
+time, with **Load older backups** to continue. The API and SDK preserve their array
+response: pass `before: lastRun.id` and `limit` to request the next page. Ordering uses
+the saved start time and run ID, so services admitted together do not disappear at a
+page boundary. Retention can prune the cursor's backup without breaking pagination.
+An `active: true` query finds in-progress runs independently of the history page.
+The dashboard keeps tracking those runs when their details are dismissed, so hiding
+progress cannot leave policy controls or the recent results stuck in an old state.
+
+Progress uses one read-only stream. The engine reads the saved state every five
+seconds while that stream is open, and coalesces local worker notifications into
+earlier reads. This also works when the worker runs in a different process. Terminal
+snapshots include the saved finish time and byte count. Reads do not overlap, and
+completion or disconnect removes the subscription and timer. The dashboard ticks
+elapsed time independently, updates history in place, and shows the current phase
+and transferred bytes without inventing a percentage for an unknown capture size.
+
+## Global backup pages
+
+`/backups` shows recent runs across destinations, with service/project names,
+captured database or volume contents, results and sizes. A destination's detail page
+shows its own history and the policies currently using it. History remains visible
+when a policy is deleted or moved. Service restores and run details use the same
+wizard and progress component as the project page; mail backups link to their mail
+server's backup view.
+
+Both histories use ten-row cursor pages. `backupDestinations.history()` and
+`backupDestinations.runs(id)` expose the same engine queries to the HTTP and native
+SDKs, with `limit` and `before` options and `{ runs, nextCursor }` results. Their HTTP
+paths are `/api/backup-destinations/history` and `/api/backup-destinations/:id/runs`.
+The overview response projects display metadata only, never artifact commands or
+credentials. Queries and cursors are scoped to the authorized organization and,
+where requested, destination.
+
+**Saved backups** counts retained successful runs; active, failed and cancelled
+attempts are separate. **Total stored** counts referenced physical objects once,
+including shared incremental blocks, so it need not equal recent transfer totals.
+**Last run** uses the same UTC timestamp decoding as the individual history rows.
+A failed destination probe takes precedence over an older successful verification.
+
+The pages refresh on demand and on returning to the browser tab. While runs are
+active, a visible page refreshes every 15 seconds without overlapping reads. It
+refreshes the selected history page in place. Loading failures offer Retry and
+preserve already loaded data; an unavailable API does not become an empty destination
+list or a false not-found page.
+
 ## Rules and retention
 
 - New policies are enabled, manual and full by default. A schedule, pre-deploy trigger
@@ -49,6 +95,20 @@ volume producer. Explicit policies can select volumes, files and folders, or a c
 capture/restore command. Named volumes and bind mounts are supported; tmpfs is not
 persistent storage. Missing or ambiguous selected mounts fail capture, and repeated
 mounts of the same physical volume produce one artifact.
+
+The default is application data, not a separate copy of the Git repository or image.
+A selected volume can still contain application files; its contents are not filtered
+based on whether they also exist in Git.
+
+### Transfer location
+
+Capture commands run at the source, but the backup payload currently streams through
+the Openship backup worker to the destination. The worker also computes checksums and
+handles incremental blocks. This is **not direct source-to-destination transfer** and
+requires the worker and its network connections to remain available until completion.
+Closing a progress view only disconnects that read-only view; it does not cancel a
+backup. SFTP destinations may be a separate server, but that alone does not remove the
+worker from the data path.
 
 Volume capture is crash-consistent by default. Docker's optional **Quiesce** freezes
 the service while its volumes are copied, then resumes it even if capture or upload
@@ -87,6 +147,13 @@ Incremental storage adds no application-level encryption at rest; configure encr
 on the destination if required.
 
 ## Restore behavior
+
+Every successful backup is a saved data restore point, including incremental backups.
+Restoring one does not automatically capture the current data first. To preserve the
+current version, run **Backup now** and wait for success before restoring an older
+version; protect that new backup if it must outlive the policy's retention window.
+The restore wizard's **Protect** option protects the selected saved backup from
+retention. It does not create a new backup.
 
 Restore has a preparation phase and a separate confirmed apply phase. Preparation
 checks the target, artifact metadata and available data; checksum verification is on
@@ -139,7 +206,7 @@ RUN_DOCKER_E2E=1 OPENSHIP_JOB_RUNNER=in-process \
   backup-volume-roundtrip backup-db-roundtrip backup-payload-matrix backup-lifecycle
 ```
 
-The four files cover 26 cases: real Docker volumes and bind mounts, exact wipe/restore,
+The four files cover 27 cases: real Docker volumes and bind mounts, exact wipe/restore,
 PostgreSQL restore and rollback on failure, custom commands, folder merge/replacement,
 codec handling, quiescing, missing sources, and the public API/SDK backup lifecycle.
 The lifecycle fixture uses a separate OpenSSH/SFTP container and storage volume. It
@@ -148,6 +215,11 @@ corruption refusal, destination changes, scheduled runs and pause, upload failur
 helper cleanup, duplicate worker delivery, retention races and project batches. A
 paused storage server holds an apply open while a second public apply request is
 rejected; both backups then restore their exact data in turn.
+The lifecycle stream test deliberately drops worker bus notifications while real
+Docker capture and SFTP storage continue. Through the public HTTP/SDK streams it
+waits for saved backup completion, prepares and applies a restore, and verifies both
+the final restore state and the restored file. The same suite checks cursor pagination
+through the public SDK, including project batches.
 Fixtures own and remove their containers, volumes, images and temporary storage.
 
 Additional tests cover metadata bounds, storage accounting, database admission races,
@@ -157,7 +229,7 @@ inline errors and progress reconnection. The Docker E2E group uses the in-proces
 worker; it does not exercise a separate production Redis/BullMQ deployment or a live
 S3 provider.
 
-### Audit validation — 2026-09-25
+### Initial audit validation — 2026-09-25
 
 | Suite | Passing cases |
 | --- | ---: |
@@ -179,3 +251,36 @@ typechecks still report four pre-existing Cloud SDK signature errors in
 `packages/adapters/src/runtime/cloud.ts` (lines 2531, 2591, 2649 and 2663 at audit time).
 There are no additional type errors from this backup change, but the full release
 gate cannot be considered green until that SDK mismatch is resolved.
+
+### Progress and history follow-up — 2026-09-25
+
+The reported PostgreSQL and Redis captures had succeeded in storage while their live
+cards remained in preparation. This follow-up fixes durable progress reconciliation,
+the elapsed clock, stale snapshot precedence, dismissed-run tracking, and paginated
+history. It also places recent backups beside destinations, above policies.
+
+Validation during this follow-up:
+
+| Suite | Passing cases |
+| --- | ---: |
+| Full Docker/SFTP HTTP/SDK lifecycle | 10 |
+| Shared run streams and worker lifecycle | 20 |
+| API backup/restore module | 273 |
+| Database backup repositories, including history and active-run queries | 51 |
+| Dashboard backup flows, streams, schedules and locale parity | 91 |
+| Native SDK backup and destination integration | 2 |
+
+After adding active-run queries, the two affected Docker lifecycle cases were rerun
+successfully, including cursor pagination through the SDK. The native SDK cases
+rebuilt and exercised the Node worker with those same query options. Database tests
+cover simultaneous start times, timestamp precision, retention of a cursor row,
+tenant isolation, and a cursor that finishes between active-history requests.
+Dashboard tests cover missed state refreshes, hidden live panels, older active runs,
+page failures, duplicate clicks and project changes during a pending request.
+
+Dashboard, contracts, SDK and database typechecks passed. The API typecheck still
+reports the four Cloud SDK signature errors listed above. The broader SDK test run
+recorded 170 passing cases and two failures in host source-file permission tests;
+the backup-specific native cases passed. This does not certify the entire release
+gate as green. The isolated Docker profile and its test fixtures were removed after
+verification.

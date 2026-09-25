@@ -282,6 +282,7 @@
       "retainDays": "Jusqu’à {days} jours"
     },
     "recent": {
+      "loadOlder": "Charger les sauvegardes précédentes",
       "title": "Sauvegardes récentes",
       "description": "Exécutions récentes, résultats et options de restauration.",
       "loading": "Chargement…",

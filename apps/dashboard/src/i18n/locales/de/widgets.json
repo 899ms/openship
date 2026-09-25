@@ -102,7 +102,7 @@
       "phase": {
         "queued": "Warten auf einen Worker…",
         "preparing": "Ziel + Dienst werden aufgelöst…",
-        "snapshotting": "Artefakte werden erzeugt (Pre-Hook läuft)…",
+        "snapshotting": "Datensicherung wird vorbereitet…",
         "uploading": "Streaming zum Ziel…",
         "verifying": "Manifest wird geschrieben…"
       },

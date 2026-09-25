@@ -194,4 +194,31 @@ describe("backup and restore progress", () => {
     await act(async () => opened[0].send(snapshot("restore")));
     expect(restore.error).toBeNull();
   });
+
+  it.each(["backup", "restore"] as const)(
+    "uses reconciled %s snapshots through completion on the same connection",
+    async kind => {
+      await render(kind);
+      const key = kind === "backup" ? "run" : "restore";
+      await act(async () => {
+        opened[0].send(snapshot(kind));
+        opened[0].send({ type: "ping" });
+        opened[0].send(snapshot(kind, kind === "backup" ? "uploading" : "applying"));
+      });
+      const finishedAt = "2026-09-25T11:06:00.042Z";
+      await act(async () => {
+        opened[0].send({ type: "snapshot", [key]: {
+          id: "run-one", status: "succeeded", finishedAt, lastEventAt: finishedAt,
+          ...(kind === "backup" ? { bytesTransferred: 54_449_050 } : { bytesRestored: 54_449_050 }),
+        } });
+        opened[0].send({ type: "complete", status: "succeeded" });
+      });
+      expect(kind === "backup" ? backup.run : restore.restore).toMatchObject({
+        status: "succeeded", finishedAt,
+        ...(kind === "backup" ? { bytesTransferred: 54_449_050 } : { bytesRestored: 54_449_050 }),
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(120_000));
+      expect(fetcher).toHaveBeenCalledOnce();
+    },
+  );
 });

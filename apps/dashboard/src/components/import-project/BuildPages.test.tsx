@@ -122,7 +122,8 @@ describe("build pages", () => {
     for (const label of [copy.openProject, composeCopy.editConfiguration]) {
       const controls = [...host.querySelectorAll("button, a")].filter(element => element.textContent === label);
       expect(controls).toHaveLength(1);
-      expect(controls[0].closest("header")).not.toBeNull();
+      expect(controls[0].closest(label === copy.openProject ? "header" : "section[aria-label]"))
+        .not.toBeNull();
     }
     expect(host.querySelector('a[href="/servers/server"]')).not.toBeNull();
     expect(mocks.ready).toHaveBeenCalledTimes(1);
@@ -146,16 +147,20 @@ describe("build pages", () => {
 
   it("switches service panels with the keyboard and preserves browser modifier shortcuts", async () => {
     await render();
+    expect(host.querySelector('[role="tablist"]')?.getAttribute("aria-orientation")).toBe("vertical");
     const prepare = tab(composeCopy.prepareTab);
-    await act(async () => { prepare.focus(); prepare.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); });
+    await act(async () => { prepare.focus(); prepare.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); });
     expect(tab("api").getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(tab("api"));
     await act(async () => tab("api").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
     expect(document.activeElement).toBe(tab("postgres"));
     await act(async () => tab("postgres").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
     expect(document.activeElement).toBe(prepare);
-    await act(async () => prepare.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true, bubbles: true })));
+    await act(async () => prepare.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", ctrlKey: true, bubbles: true })));
     expect(document.activeElement).toBe(prepare);
+    await act(async () => prepare.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(document.activeElement).toBe(tab("postgres"));
+    expect(panel().textContent).toContain("postgres pull output");
     expect(host.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
   });
 

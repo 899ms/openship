@@ -280,7 +280,15 @@ describe("owned native platform on Node", () => {
       scope = await ship.scope({ identity: "verified", organizationId: mapped.personalOrganizationId });
       const outcome = await scope.backups.getRun(submitted.runId);
       expect((await scope.backups.listRuns(projectId)).map(row => row.id)).toEqual([submitted.runId]);
+      expect(await scope.backups.listRuns(projectId, { active: true })).toEqual([]);
+      expect((await scope.backups.listRuns(projectId, { active: false })).map(row => row.id)).toEqual([submitted.runId]);
+      expect(await scope.backups.listRuns(projectId, { before: submitted.runId })).toEqual([]);
       expect(outcome).toMatchObject({ status: "failed", executionFinishedAt: expect.any(String), errorMessage: expect.any(String) });
+      const destinationHistory = await scope.backupDestinations.runs(destination.id);
+      expect(destinationHistory.runs).toMatchObject([{ id: submitted.runId, serviceId: service!.id, serviceName: service!.name, status: "failed" }]);
+      expect(await scope.backupDestinations.history()).toEqual(destinationHistory);
+      expect(await scope.backupDestinations.runs(destination.id, { before: submitted.runId })).toEqual({ runs: [], nextCursor: null });
+      expect((await scope.backupDestinations.list())[0]!.stats).toMatchObject({ savedCount: 0, failedCount: 1, activeCount: 0, runCount: 1, lastRunAt: outcome.startedAt });
       const events = [];
       for await (const event of scope.backups.streamRun(submitted.runId)) events.push(JSON.parse(event.data));
       expect(events.map(event => event.type)).toEqual(["snapshot", "complete"]);
@@ -293,6 +301,7 @@ describe("owned native platform on Node", () => {
       await expect(otherScope.backups.listPolicies(projectId)).rejects.toMatchObject({ code: "NOT_FOUND" });
       await scope.backups.removePolicy(policy.id);
       expect(await scope.backups.listPolicies(projectId)).toEqual([]);
+      expect(await scope.backupDestinations.runs(destination.id)).toEqual(destinationHistory);
     } finally {
       await ship?.close();
       await rm(directory, { recursive: true, force: true });
@@ -320,6 +329,8 @@ describe("owned native platform on Node", () => {
       expect(await scoped.backupDestinations.preflight(local.id)).toMatchObject({ ok: true });
       expect((await scoped.backupDestinations.get(local.id)).lastVerifiedAt).toEqual(expect.any(String));
       expect(await scoped.backupDestinations.usage(local.id)).toMatchObject({ destination: { id: local.id }, policies: [] });
+      expect(await scoped.backupDestinations.history({ limit: 10 })).toEqual({ runs: [], nextCursor: null });
+      expect(await scoped.backupDestinations.runs(local.id, { limit: 10 })).toEqual({ runs: [], nextCursor: null });
       await expect(scoped.backupDestinations.create({ name: "Outside", kind: "local", endpoint: join(directory, "outside") })).rejects.toMatchObject({ code: "BACKUP_DESTINATION_FAILED" });
       const s3 = await scoped.backupDestinations.create({ name: "Object backups", kind: "s3_compatible", bucket: "backups", accessKeyId: "native-access-key", secretAccessKey: "native-storage-secret" });
       expect(s3).toMatchObject({ hasAccessKeyId: true, hasSecretAccessKey: true });
@@ -333,6 +344,8 @@ describe("owned native platform on Node", () => {
       const other = await ship.operator!.ensureNamespace({ issuer: "destinations", key: "other", name: "Other", ownerUserId: mapped.user.id });
       const otherScope = await ship.scope({ identity: "verified", organizationId: other.organizationId });
       expect(await otherScope.backupDestinations.list()).toEqual([]);
+      expect(await otherScope.backupDestinations.history()).toEqual({ runs: [], nextCursor: null });
+      await expect(otherScope.backupDestinations.runs(local.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
       await expect(otherScope.backupDestinations.get(s3.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
       await ship.close();
       ship = await createShip(options);

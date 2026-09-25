@@ -963,7 +963,7 @@ export const ProjectSettingsProvider: React.FC<ProviderProps> = ({
     const tl = t.projects.sidebar.tabs;
     const healthAvailable = selfHosted && projectData.deployTarget !== "cloud";
     return [
-      { id: "overview", label: tl.overview, icon: "dashboard" },
+      { id: "overview", label: tl.overview, icon: "chart-pie" },
       { id: "topology", label: tl.topology, icon: "topology" },
       { id: "services", label: tl.services, icon: "layers" },
       { id: "domains", label: tl.domains, icon: "globe" },

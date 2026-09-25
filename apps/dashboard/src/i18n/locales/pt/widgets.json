@@ -102,7 +102,7 @@
       "phase": {
         "queued": "Aguardando um worker…",
         "preparing": "Resolvendo destino + serviço…",
-        "snapshotting": "Produzindo artefatos (executando pre-hook)…",
+        "snapshotting": "Preparando a captura dos dados…",
         "uploading": "Transmitindo para o destino…",
         "verifying": "Gravando manifesto…"
       },

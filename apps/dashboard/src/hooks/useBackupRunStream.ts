@@ -1,10 +1,10 @@
 /**
  * Subscribe to a backup run's live progress channel.
  *
- * The server's SSE handler sends a `snapshot` event with the full row
- * immediately on connect, then `transition` / `progress` / `complete`
- * events as the FSM advances. Survives reload because the DB row is
- * authoritative — server re-snapshots on reconnect.
+ * The server sends the saved row on connect and reconciles durable snapshots
+ * while the FSM advances, including when the worker is in another process.
+ * Legacy transition/progress events remain supported. The saved row is
+ * authoritative on reconnect and before the terminal completion event.
  */
 
 "use client";

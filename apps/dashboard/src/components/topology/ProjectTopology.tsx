@@ -53,6 +53,7 @@ import {
   type TopologyChange,
 } from "./changes";
 import { TopologyCanvas, TopologyResourceIcon, type TopologySelection } from "./TopologyCanvas";
+import { TopologySkeleton } from "./TopologySkeleton";
 import { TopologyInspector } from "./TopologyInspector";
 import { TopologyReview } from "./TopologyReview";
 import { TopologyPlacement } from "./TopologyPlacement";
@@ -61,7 +62,6 @@ import { useClusterDatabases } from "./useClusterDatabases";
 import { useTopologyFullscreen } from "./useTopologyFullscreen";
 import { ClusterDatabasePanel } from "./ClusterDatabasePanel";
 import "@/components/scale/scale.css";
-import "./topology.css";
 
 function mergeAdvanced(service: Service, patch: Partial<ServiceInput>): Service {
   const advanced = { ...service.advanced, ...patch.advanced } as Record<string, unknown>;
@@ -753,13 +753,7 @@ export default function ProjectTopology({
                 onConnect={connect}
               />
             ) : (
-              <div
-                role="status"
-                className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
-              >
-                <UiIcon name="spinner" className="size-4 animate-spin" />
-                Loading services & connections…
-              </div>
+              <TopologySkeleton />
             )}
           </div>
           {issues.length > 0 && (
@@ -843,7 +837,7 @@ export default function ProjectTopology({
                 Review & apply
               </Button>
             </div>
-          ) : (
+          ) : runtime.ready && (
             <div
               className="topology-hint absolute bottom-5 end-5 z-10 text-xs text-muted-foreground"
               inert={inspectorOpen}

@@ -9,6 +9,7 @@
  */
 
 import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client";
 import {
   backupDestination,
@@ -17,6 +18,8 @@ import {
   backupRun,
   clusterDatabase,
   mailServers,
+  project,
+  service,
   servers,
 } from "../schema";
 import { AppError, backupArtifactObjects, type StoredBackupArtifact } from "@repo/core";
@@ -566,6 +569,17 @@ export function createBackupPolicyRepo(db: Database) {
 
 // ─── Run repo ────────────────────────────────────────────────────────────────
 
+export interface BackupRunListOptions {
+  limit?: number;
+  offset?: number;
+  projectId?: string;
+  serviceId?: string;
+  mailServerId?: string;
+  destinationId?: string;
+  before?: string;
+  active?: boolean;
+}
+
 export function createBackupRunRepo(db: Database) {
   return {
     /**
@@ -575,13 +589,7 @@ export function createBackupRunRepo(db: Database) {
      */
     async listByOrganization(
       organizationId: string,
-      opts?: {
-        limit?: number;
-        offset?: number;
-        projectId?: string;
-        serviceId?: string;
-        mailServerId?: string;
-      },
+      opts?: BackupRunListOptions,
     ): Promise<BackupRun[]> {
       const conditions = [
         eq(backupRun.organizationId, organizationId),
@@ -590,12 +598,55 @@ export function createBackupRunRepo(db: Database) {
       if (opts?.projectId) conditions.push(eq(backupRun.projectId, opts.projectId));
       if (opts?.serviceId) conditions.push(eq(backupRun.serviceId, opts.serviceId));
       if (opts?.mailServerId) conditions.push(eq(backupRun.mailServerId, opts.mailServerId));
+      if (opts?.destinationId) conditions.push(eq(backupRun.destinationId, opts.destinationId));
+      if (opts?.active) conditions.push(inArray(backupRun.status, IN_FLIGHT_RUN_STATUSES));
+      if (opts?.before) {
+        const cursorRun = alias(backupRun, "backup_cursor");
+        const cursor = db.select({ startedAt: cursorRun.startedAt, id: cursorRun.id }).from(cursorRun).where(and(
+          eq(cursorRun.id, opts.before), eq(cursorRun.organizationId, organizationId),
+          opts.projectId ? eq(cursorRun.projectId, opts.projectId) : undefined,
+          opts.serviceId ? eq(cursorRun.serviceId, opts.serviceId) : undefined,
+          opts.mailServerId ? eq(cursorRun.mailServerId, opts.mailServerId) : undefined,
+          opts.destinationId ? eq(cursorRun.destinationId, opts.destinationId) : undefined,
+        ));
+        // Keep the timestamp comparison in Postgres (including its precision).
+        // A pruned cursor still works: retention soft-deletes its history row.
+        conditions.push(sql`(${backupRun.startedAt}, ${backupRun.id}) < (${cursor})`);
+      }
       return db.query.backupRun.findMany({
         where: and(...conditions),
-        orderBy: (t, { desc }) => [desc(t.startedAt)],
+        orderBy: (t, { desc }) => [desc(t.startedAt), desc(t.id)],
         limit: opts?.limit ?? 100,
         offset: opts?.offset ?? 0,
       });
+    },
+
+    /** Names for a bounded history page, even when its policy was removed or moved.
+     *  Pagination and ownership use the same query as project backup history. */
+    async listWithSources(organizationId: string, opts?: BackupRunListOptions) {
+      const runs = await this.listByOrganization(organizationId, opts);
+      if (!runs.length) return [];
+      const sources = await db.select({
+        id: backupRun.id,
+        projectName: project.name,
+        serviceName: service.name,
+        mailServerName: mailServers.domain,
+        destinationName: backupDestination.name,
+      }).from(backupRun)
+        .leftJoin(project, and(eq(project.id, backupRun.projectId), eq(project.organizationId, organizationId)))
+        .leftJoin(service, and(eq(service.id, backupRun.serviceId), eq(service.projectId, project.id)))
+        .leftJoin(servers, and(eq(servers.id, backupRun.mailServerId), eq(servers.organizationId, organizationId)))
+        .leftJoin(mailServers, eq(mailServers.serverId, servers.id))
+        .leftJoin(backupDestination, and(eq(backupDestination.id, backupRun.destinationId), eq(backupDestination.organizationId, organizationId)))
+        .where(and(eq(backupRun.organizationId, organizationId), inArray(backupRun.id, runs.map((r) => r.id))));
+      const names = new Map(sources.map((s) => [s.id, s]));
+      return runs.map((run) => ({
+        ...run,
+        projectName: names.get(run.id)?.projectName ?? null,
+        serviceName: names.get(run.id)?.serviceName ?? null,
+        mailServerName: names.get(run.id)?.mailServerName ?? null,
+        destinationName: names.get(run.id)?.destinationName ?? null,
+      }));
     },
 
     async findById(id: string): Promise<BackupRun | undefined> {
@@ -627,9 +678,12 @@ export function createBackupRunRepo(db: Database) {
      * status. Legacy rows have no batchId and retain the former single-run behavior because
      * timestamp proximity cannot safely distinguish concurrent triggers.
      */
-    async latestByPolicy(policyId: string): Promise<PolicyLastRunSummary | undefined> {
+    async latestByPolicy(policyId: string, destinationId?: string): Promise<PolicyLastRunSummary | undefined> {
       const latest = await db.query.backupRun.findFirst({
-        where: and(eq(backupRun.policyId, policyId), isNull(backupRun.deletedAt)),
+        where: and(
+          eq(backupRun.policyId, policyId), isNull(backupRun.deletedAt),
+          destinationId ? eq(backupRun.destinationId, destinationId) : undefined,
+        ),
         orderBy: (t, { desc }) => [desc(t.startedAt), desc(t.id)],
       });
       if (!latest) return undefined;
@@ -649,6 +703,7 @@ export function createBackupRunRepo(db: Database) {
           eq(backupRun.policyId, policyId),
           eq(backupRun.batchId, batchId),
           isNull(backupRun.deletedAt),
+          destinationId ? eq(backupRun.destinationId, destinationId) : undefined,
         ),
       });
 
@@ -696,15 +751,18 @@ export function createBackupRunRepo(db: Database) {
       };
     },
 
-    /** Storage rollup per destination for one org: bytes actually stored
-     *  (succeeded, non-deleted runs), total run count, and the most recent run
-     *  time. Powers the Backups page's per-destination size monitoring. */
+    /** Storage and run outcomes per destination for one org. Retained successful
+     *  backups are distinct from attempts, which may still be running or failed. */
     async statsByDestination(organizationId: string): Promise<
       Array<{
         destinationId: string | null;
         storedBytes: number;
         runCount: number;
         lastRunAt: Date | null;
+        savedCount: number;
+        activeCount: number;
+        failedCount: number;
+        cancelledCount: number;
       }>
     > {
       const rows = await db
@@ -712,7 +770,13 @@ export function createBackupRunRepo(db: Database) {
           destinationId: backupRun.destinationId,
           storedBytes: sql<number>`coalesce(sum(case when ${backupRun.status} = 'succeeded' then ${backupRun.bytesTransferred} else 0 end), 0)`,
           runCount: sql<number>`count(*)`,
-          lastRunAt: sql<string | null>`max(${backupRun.startedAt})`,
+          // Use the column's UTC decoder. Parsing a raw timestamp string with
+          // new Date() shifts it by the control-plane machine's local timezone.
+          lastRunAt: sql<Date | null>`max(${backupRun.startedAt})`.mapWith(backupRun.startedAt),
+          savedCount: sql<number>`count(*) filter (where ${backupRun.status} = 'succeeded')`,
+          activeCount: sql<number>`count(*) filter (where ${inArray(backupRun.status, IN_FLIGHT_RUN_STATUSES)})`,
+          failedCount: sql<number>`count(*) filter (where ${backupRun.status} in ('failed', 'server_error'))`,
+          cancelledCount: sql<number>`count(*) filter (where ${backupRun.status} = 'cancelled')`,
         })
         .from(backupRun)
         .where(and(eq(backupRun.organizationId, organizationId), isNull(backupRun.deletedAt)))
@@ -749,7 +813,11 @@ export function createBackupRunRepo(db: Database) {
           ? [...objects.get(r.destinationId)!.values()].reduce((sum, bytes) => sum + bytes, legacyBytes.get(r.destinationId) ?? 0)
           : Number(r.storedBytes) || 0,
         runCount: Number(r.runCount) || 0,
-        lastRunAt: r.lastRunAt ? new Date(r.lastRunAt) : null,
+        lastRunAt: r.lastRunAt ?? null,
+        savedCount: Number(r.savedCount) || 0,
+        activeCount: Number(r.activeCount) || 0,
+        failedCount: Number(r.failedCount) || 0,
+        cancelledCount: Number(r.cancelledCount) || 0,
       }));
     },
 

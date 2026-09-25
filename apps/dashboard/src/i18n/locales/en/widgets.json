@@ -101,10 +101,10 @@
       },
       "phase": {
         "queued": "Waiting for a worker…",
-        "preparing": "Resolving destination + service…",
-        "snapshotting": "Producing artifacts (pre-hook running)…",
-        "uploading": "Streaming to destination…",
-        "verifying": "Writing manifest…"
+        "preparing": "Checking the source and destination…",
+        "snapshotting": "Preparing the data capture…",
+        "uploading": "Transferring backup data…",
+        "verifying": "Finalizing the backup manifest…"
       },
       "reconnecting": "Reconnecting to progress…",
       "reconnect": "Reconnect"

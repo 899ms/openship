@@ -102,7 +102,7 @@
       "phase": {
         "queued": "正在等待工作节点……",
         "preparing": "正在解析目标位置和服务……",
-        "snapshotting": "正在生成制品（预处理钩子运行中）……",
+        "snapshotting": "正在准备备份数据……",
         "uploading": "正在流式传输到目标位置……",
         "verifying": "正在写入清单……"
       },

@@ -447,6 +447,7 @@
       "retainDays": "Up to {days} days"
     },
     "recent": {
+      "loadOlder": "Load older backups",
       "title": "Recent backups",
       "description": "Recent runs, their results, and restore options.",
       "loading": "Loading…",

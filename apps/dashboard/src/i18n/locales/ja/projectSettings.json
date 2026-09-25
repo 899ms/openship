@@ -282,6 +282,7 @@
       "retainDays": "最大{days}日間"
     },
     "recent": {
+      "loadOlder": "以前のバックアップを読み込む",
       "title": "最近のバックアップ",
       "description": "最近の実行結果と復元オプション。",
       "loading": "読み込み中…",

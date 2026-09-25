@@ -4,12 +4,14 @@ import { Icon as UiIcon } from "@repo/ui/icons";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import ComposeSidebar from "./ComposeSidebar";
+import DeploymentDetails from "../DeploymentDetails";
 import BuildTerminal from "../BuildTerminal";
 import { DeploymentHeader } from "../DeploymentHeader";
+import { DeploymentLayout } from "../DeploymentLayout";
 import { DeploymentLogsPanel } from "../DeploymentLogsPanel";
 import { PageContainer } from "@/components/ui/PageContainer";
 import { Tabs } from "@/components/ui/Tabs";
+import { ServiceStatusIndicator } from "@/components/services/ServiceStatusBadge";
 import { PortAdvisoryModal } from "../PortAdvisoryModal";
 import { PromptDetails } from "../PromptDetails";
 import { useRouter } from "next/navigation";
@@ -127,10 +129,9 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
     return ordered;
   }, [config.services, services, state.buildLogs]);
   // `total` stays local — this panel counts services that have produced log lines
-  // but aren't in the roster yet, which the sidebar deliberately does not. The
-  // per-status counts are shared so the two readouts can't contradict each other.
+  // but aren't in the roster yet. Counts use the same resolver as the details.
   const total = Math.max(services.length, logServiceNames.length);
-  const { running, built, building, failed } = composeServiceTally(services);
+  const { running, built, failed } = composeServiceTally(services);
   const settled = running + built + failed;
   const terminalTheme = resolvedTheme === "light" ? "light" : "dark"; // dim → dark
 
@@ -198,7 +199,7 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
                   ? "bg-danger-solid text-white hover:bg-danger-solid/90"
                   : variant === "primary"
                     ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                    : "border border-border bg-muted text-foreground hover:bg-muted/80";
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80";
               return (
                 <button
                   key={action.id}
@@ -302,80 +303,65 @@ const ComposeDeploymentProcessing: React.FC<Props> = ({ onRedeploy }) => {
     <PageContainer>
       <DeploymentHeader onRedeploy={onRedeploy} serviceCount={total} decisionPending={showDecision} />
 
-      {/* ── Grid ───────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_320px]">
-        {/* Main column */}
-        <div className="min-w-0 space-y-5">
-          {/* Decision banner — persists while a partial deploy awaits keep/reject
-              (survives refresh via the server flag). Re-opens the dialog. */}
-          {showDecision ? (
-            <div className="rounded-2xl border border-warning-border bg-warning-bg px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-warning">
-                    {cd.decisionBannerTitle}
-                  </p>
-                  <p className="mt-1 text-sm text-warning/80">
-                    {state.warningMessage || cd.decisionBannerDefaultMsg}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDecisionModalOpen(true)}
-                  className="shrink-0 rounded-lg bg-warning-solid px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-warning-solid/90"
-                >
-                  {cd.review}
-                </button>
+      <ComposeDeploymentBody
+        logs={state.buildLogs}
+        serviceNames={logServiceNames}
+        services={services}
+        activeTab={activeLogTab}
+        onTabChange={handleTabChange}
+        deploymentStatus={deploymentStatus}
+        decisionPending={showDecision}
+        projectId={projectId}
+        deploymentId={state.deploymentId ?? undefined}
+        isCurrentDeployment={!!state.deploymentId && liveDeploymentId === state.deploymentId}
+        settled={settled}
+        total={total}
+        isFinished={isFinished}
+        terminalTheme={terminalTheme}
+      >
+        {/* Decision banner — persists while a partial deploy awaits keep/reject
+            (survives refresh via the server flag). Re-opens the dialog. */}
+        {showDecision ? (
+          <div className="rounded-2xl border border-warning-border bg-warning-bg px-5 py-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-warning">
+                  {cd.decisionBannerTitle}
+                </p>
+                <p className="mt-1 text-sm text-warning">
+                  {state.warningMessage || cd.decisionBannerDefaultMsg}
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setDecisionModalOpen(true)}
+                className="shrink-0 rounded-lg bg-warning-solid px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-warning-solid/90"
+              >
+                {cd.review}
+              </button>
             </div>
-          ) : hasWarning ? (
-            <div className="rounded-2xl border border-warning-border bg-warning-bg px-5 py-4">
-              <p className="text-sm font-medium text-warning">
-                {cd.warningTitle}
-              </p>
-              <p className="mt-1 text-sm text-warning/80">
-                {state.warningMessage}
-              </p>
-            </div>
-          ) : null}
+          </div>
+        ) : hasWarning ? (
+          <div className="rounded-2xl border border-warning-border bg-warning-bg px-5 py-4">
+            <p className="text-sm font-medium text-warning">
+              {cd.warningTitle}
+            </p>
+            <p className="mt-1 text-sm text-warning">
+              {state.warningMessage}
+            </p>
+          </div>
+        ) : null}
 
-          {deploymentStatus === "ready" && (
-            <PortAdvisoryModal
-              deploymentId={state.deploymentId}
-              projectId={state.projectId || config.projectId}
-              checks={state.portCheck}
-              skipped={state.portCheckSkipped}
-              isCompose
-            />
-          )}
-
-          <ComposeServiceLogsPanel
-            logs={state.buildLogs}
-            serviceNames={logServiceNames}
-            services={services}
-            activeTab={activeLogTab}
-            onTabChange={handleTabChange}
-            deploymentStatus={deploymentStatus}
-            decisionPending={showDecision}
-            projectId={projectId}
-            deploymentId={state.deploymentId ?? undefined}
-            isCurrentDeployment={!!state.deploymentId && liveDeploymentId === state.deploymentId}
-            running={running}
-            built={built}
-            building={building}
-            failed={failed}
-            settled={settled}
-            total={total}
-            isFinished={isFinished}
-            terminalTheme={terminalTheme}
+        {deploymentStatus === "ready" && (
+          <PortAdvisoryModal
+            deploymentId={state.deploymentId}
+            projectId={state.projectId || config.projectId}
+            checks={state.portCheck}
+            skipped={state.portCheckSkipped}
+            isCompose
           />
-        </div>
-
-        {/* Sidebar */}
-        <div className="h-fit min-w-0 xl:sticky xl:top-6">
-          <ComposeSidebar />
-        </div>
-      </div>
+        )}
+      </ComposeDeploymentBody>
 
       {showDecision && decisionModalOpen && (
         <Modal
@@ -493,24 +479,8 @@ function parseLogLines(
     .filter((log) => log.text.trim().length > 0);
 }
 
-function statusDotClass(status?: ServiceDeployStatus["status"]) {
-  switch (status) {
-    case "running":
-      return "bg-success-solid";
-    case "built":
-      return "bg-muted-foreground";
-    case "building":
-    case "deploying":
-      return "bg-foreground";
-    case "failed":
-      return "bg-danger-solid";
-    case "pending":
-    default:
-      return "bg-muted-foreground";
-  }
-}
-
-function ComposeServiceLogsPanel({
+function ComposeDeploymentBody({
+  children,
   logs,
   serviceNames,
   services,
@@ -521,15 +491,12 @@ function ComposeServiceLogsPanel({
   projectId,
   deploymentId,
   isCurrentDeployment,
-  running,
-  built,
-  building,
-  failed,
   settled,
   total,
   isFinished,
   terminalTheme,
 }: {
+  children: React.ReactNode;
   logs: BuildLog[];
   serviceNames: string[];
   services: ServiceDeployStatus[];
@@ -542,11 +509,6 @@ function ComposeServiceLogsPanel({
   projectId?: string;
   deploymentId?: string;
   isCurrentDeployment: boolean;
-  running: number;
-  /** Image built, container not up yet — see the ComposeSidebar tally. */
-  built: number;
-  building: number;
-  failed: number;
   settled: number;
   total: number;
   isFinished: boolean;
@@ -554,8 +516,6 @@ function ComposeServiceLogsPanel({
 }) {
   const { t } = useI18n();
   const cd = t.importProject.composeDeployment;
-  // Shared with ComposeSidebar, which renders the same sentence.
-  const tally = t.importProject.composeServiceTally;
   const serviceIdToName = useMemo(() => {
     const map = new Map<string, string>();
     services.forEach((service) => {
@@ -625,7 +585,8 @@ function ComposeServiceLogsPanel({
   }, [hasFinished, parsedLogs, serviceNames, cd]);
 
   const tabPrefix = React.useId();
-  const selectedTabId = terminalTabs.some(tab => tab.id === activeTab) ? activeTab : PREPARE_TAB;
+  const selectedTab = terminalTabs.find(tab => tab.id === activeTab) ?? terminalTabs[0];
+  const selectedTabId = selectedTab.id;
   const usesRuntimeLogs = (name: string) => name !== PREPARE_TAB && !!projectId && !!deploymentId &&
     !!serviceIdByName.get(name) && serviceLogSource({
       deploymentStatus, decisionPending, isCurrentDeployment,
@@ -633,53 +594,68 @@ function ComposeServiceLogsPanel({
     }) === "runtime";
 
   return (
-    <DeploymentLogsPanel
-      title={cd.logsTitle}
-      summary={
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {usesRuntimeLogs(selectedTabId) && <span className="inline-flex items-center gap-1.5 text-success"><span className="size-1.5 rounded-full bg-success-solid" aria-hidden />{t.importProject.deploymentProcessing.productionLogs}</span>}
-          {total > 0 && <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 tabular-nums">
-            <span><span className="font-medium text-foreground">{running}/{total}</span> {tally.running}</span>
-            {built > 0 && <span>{interpolate(tally.builtSuffix, { count: String(built) })}</span>}
-            {building > 0 && <span>{interpolate(tally.buildingSuffix, { count: String(building) })}</span>}
-            {failed > 0 && <span className="text-danger">{interpolate(tally.failedSuffix, { count: String(failed) })}</span>}
-          </span>}
+    <DeploymentLayout
+      details={<DeploymentDetails />}
+      navigation={
+        <div className="rounded-2xl bg-card p-3">
+          {!isFinished && total > 0 && (
+            <div className="mx-3 mb-3 mt-1 h-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={cd.title.deploying} aria-valuemin={0} aria-valuemax={total} aria-valuenow={settled}>
+              <div className="h-full bg-primary transition-all duration-500" style={{ width: `${(settled / total) * 100}%` }} />
+            </div>
+          )}
+          <Tabs
+            value={selectedTabId}
+            onChange={onTabChange}
+            idPrefix={tabPrefix}
+            ariaLabel={cd.logsTitle}
+            orientation="vertical"
+            className="max-h-80"
+            tabs={terminalTabs.map(tab => {
+              const status = serviceStatusByName.get(tab.id);
+              return {
+                key: tab.id,
+                label: tab.label,
+                leading: tab.id === PREPARE_TAB ? <UiIcon name="folder-code" className="size-4 shrink-0" aria-hidden /> : (
+                  <span className="inline-flex size-4 shrink-0 items-center justify-center">
+                    <ServiceStatusIndicator status={status ?? "pending"} label={t.importProject.serviceStatus[status ?? "pending"]} />
+                  </span>
+                ),
+              };
+            })}
+          />
         </div>
-      }
-      progress={!isFinished && total > 0 && (
-        <div className="mx-5 mb-3 h-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={cd.title.deploying} aria-valuemin={0} aria-valuemax={total} aria-valuenow={settled}>
-          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${(settled / total) * 100}%` }} />
-        </div>
-      )}
-      tabs={
-        <Tabs value={selectedTabId} onChange={onTabChange} idPrefix={tabPrefix} ariaLabel={cd.logsTitle} fullWidth className="px-2" tabs={terminalTabs.map(tab => {
-          const status = serviceStatusByName.get(tab.id);
-          return {
-            key: tab.id,
-            label: tab.label,
-            leading: tab.id === PREPARE_TAB ? <UiIcon name="folder-code" className="size-4 shrink-0" aria-hidden /> : (
-              <span className="inline-flex size-4 shrink-0 items-center justify-center" role="img" aria-label={t.importProject.serviceStatus[status ?? "pending"]}>
-                {status === "building" || status === "deploying" ? <UiIcon name="spinner" className="size-3.5 animate-spin text-info" aria-hidden /> : <span className={`size-1.5 rounded-full ${statusDotClass(status)}`} />}
-              </span>
-            ),
-          };
-        })} />
       }
     >
-      {terminalTabs.map(tab => {
-        const serviceId = serviceIdByName.get(tab.id);
-        const active = selectedTabId === tab.id;
-        return (
-          <div key={tab.id} id={`${tabPrefix}-panel-${tab.id}`} role="tabpanel" aria-labelledby={`${tabPrefix}-tab-${tab.id}`} aria-hidden={!active} tabIndex={active ? 0 : -1} className={`absolute inset-0 focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 ${active ? "" : "invisible pointer-events-none"}`}>
-            {usesRuntimeLogs(tab.id) && projectId && deploymentId && serviceId ? (
-              <LiveServiceLogsTerminal projectId={projectId} deploymentId={deploymentId} serviceId={serviceId} active={active} theme={terminalTheme} />
-            ) : (
-              <ComposeLogTerminal logs={tab.logs} active={active} emptyMessage={tab.emptyMessage} theme={terminalTheme} />
-            )}
-          </div>
-        );
-      })}
-    </DeploymentLogsPanel>
+      {children}
+      <DeploymentLogsPanel
+        title={usesRuntimeLogs(selectedTabId) ? t.importProject.deploymentProcessing.productionLogs : cd.logsTitle}
+        summary={<span className="min-w-0 flex-1 truncate text-end text-sm text-muted-foreground" title={selectedTab.label}>{selectedTab.label}</span>}
+      >
+        {terminalTabs.map(tab => {
+          const serviceId = serviceIdByName.get(tab.id);
+          const active = selectedTabId === tab.id;
+          // Keep inactive consoles sized for xterm's fit. Opacity also hides its
+          // .visible scrollbars, which override the inherited visibility:hidden.
+          return (
+            <div
+              key={tab.id}
+              id={`${tabPrefix}-panel-${tab.id}`}
+              role="tabpanel"
+              aria-labelledby={`${tabPrefix}-tab-${tab.id}`}
+              aria-hidden={!active}
+              tabIndex={active ? 0 : -1}
+              className={`absolute inset-0 focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 ${active ? "" : "invisible pointer-events-none opacity-0"}`}
+            >
+              {usesRuntimeLogs(tab.id) && projectId && deploymentId && serviceId ? (
+                <LiveServiceLogsTerminal projectId={projectId} deploymentId={deploymentId} serviceId={serviceId} active={active} theme={terminalTheme} />
+              ) : (
+                <ComposeLogTerminal logs={tab.logs} active={active} emptyMessage={tab.emptyMessage} theme={terminalTheme} />
+              )}
+            </div>
+          );
+        })}
+      </DeploymentLogsPanel>
+    </DeploymentLayout>
   );
 }
 

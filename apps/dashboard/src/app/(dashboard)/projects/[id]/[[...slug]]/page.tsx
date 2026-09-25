@@ -1028,7 +1028,7 @@ const ProjectSettingsContent = () => {
       </div>
 
       {/* Content */}
-      <div className={`grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 ${activeTab === "topology" ? "flex-1" : ""}`}>
+      <div className={`grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 ${activeTab === "topology" ? "flex-1 lg:flex-none" : ""}`}>
         {/* ── LEFT COLUMN ── */}
         <div className={`min-w-0 ${activeTab === "topology" ? "flex flex-col gap-6" : "space-y-6"}`}>
           <ProjectMobileTabs />

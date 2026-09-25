@@ -29,6 +29,7 @@ export const outlineModern = {
   "calendar-clock": mask("calendar time-56-1688358192.png", [3.375, 2.25, 17.4375, 19.5]),
   "chart-bar": mask("bar chart 3 line-5-1681196062.png", [5.4375, 3.1875, 13.125, 16.875]),
   "chart-line": mask("line chart-130-1681196175.png", [3.5625, 3.1875, 16.875, 16.875]),
+  "chart-pie": mask("graph-309-1663766896.png", [2.0625, 1.875, 19.3125, 20.25]),
   "check": mask("checkmark-72-1658234612.png", [4.125, 6.375, 15.75, 11.25]),
   "check-circle": mask("check circle-67-1658234612.png", [2.25, 2.4375, 19.6875, 19.125]),
   "chevron-down": mask("chevron down-8-1696832403.png", [4.125, 8.25, 15.75, 8.625]),

@@ -146,6 +146,7 @@ export const backupDependencies: BackupDependencies = {
   events(ctx, kind, id, signal) {
     if (kind === "run") return runEvents<BackupRunEvent, Awaited<ReturnType<typeof run>>>({
       bus: backupRunBus, id, signal, load: () => run(ctx, id),
+      reconcile: { everyMs: 5_000 },
       snapshot: row => ({ type: "snapshot", run: row }),
       complete: row => terminal.has(row.status) ? { type: "complete", status: row.status as "succeeded" | "failed" | "cancelled" | "server_error", errorMessage: row.errorMessage } : null,
       present: event => event.type === "snapshot" ? { ...event, run: presentBackupRun(event.run) }
@@ -153,6 +154,7 @@ export const backupDependencies: BackupDependencies = {
     });
     return runEvents<RestoreRunEvent, Awaited<ReturnType<typeof restore>>>({
       bus: restoreRunBus, id, signal, load: () => restore(ctx, id),
+      reconcile: { everyMs: 5_000, isTransient: event => event.type === "warning" },
       snapshot: row => ({ type: "snapshot", restore: row }),
       complete: row => terminal.has(row.status) ? { type: "complete", status: row.status as "succeeded" | "failed" | "cancelled" | "server_error", errorMessage: row.errorMessage } : null,
       present: event => event.type === "snapshot" ? { ...event, restore: presentBackupRestore(event.restore) } : event,

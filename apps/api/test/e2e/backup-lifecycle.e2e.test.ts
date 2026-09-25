@@ -1,5 +1,5 @@
 /** Release gate: public API/SDK → real queue → Docker → separate SFTP server → restore. */
-import { beforeAll, beforeEach, afterAll, expect, it } from "vitest";
+import { beforeAll, beforeEach, afterAll, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -15,6 +15,7 @@ import {
 import { incrementalBackupStorage, backupArtifactObjects } from "@repo/core";
 import { getFreePort } from "@repo/core/ports";
 import { repos, type BackupRun } from "@repo/db";
+import type { BackupRun as RunSnapshot, BackupRestore as RestoreSnapshot } from "@repo/contracts";
 import { OpenshipClient } from "@repo/sdk/client";
 import { env } from "@repo/platform/engine/config/index";
 import { mintPatToken } from "@repo/platform/engine/lib/pat";
@@ -26,6 +27,8 @@ import {
 } from "@repo/platform/engine/lib/job-runner/index";
 import { InProcessJobRunner } from "@repo/platform/engine/lib/job-runner/in-process";
 import { backupOrchestrator } from "@repo/platform/engine/modules/backups/backup.orchestrator";
+import { backupRunBus } from "@repo/platform/engine/modules/backups/backup.sse";
+import { restoreRunBus } from "@repo/platform/engine/modules/backups/restore.sse";
 import { prunePolicy } from "@repo/platform/engine/modules/backups/retention-prune";
 import { backupRoutes } from "../../src/modules/backups/backup.routes";
 import { backupDestinationRoutes } from "../../src/modules/backup-destinations/destination.routes";
@@ -350,6 +353,58 @@ describeDockerE2E("backup lifecycle through the public controls", () => {
     expect((await repos.backupRun.findById(point.id))?.deletedAt).not.toBeNull();
   });
 
+  it("streams saved backup and restore progress through HTTP when worker notifications are lost", async () => {
+    // The real worker and storage still run. Only its process-local notifications
+    // are dropped, as when an API connection is served by another process.
+    const backupEvents = vi.spyOn(backupRunBus, "publish").mockImplementation(() => {});
+    const restoreEvents = vi.spyOn(restoreRunBus, "publish").mockImplementation(() => {});
+    try {
+      const accepted = await client.backups.run(policyId);
+      const snapshots: RunSnapshot[] = [];
+      const events: string[] = [];
+      for await (const frame of client.backups.streamRun(accepted.runId, { signal: AbortSignal.timeout(120_000) })) {
+        const event = JSON.parse(frame.data);
+        events.push(event.type);
+        if (event.type === "snapshot") snapshots.push(event.run);
+      }
+      const saved = await client.backups.getRun(accepted.runId);
+      expect(events.at(-1)).toBe("complete");
+      expect(snapshots.at(-1)).toMatchObject({
+        status: "succeeded", finishedAt: saved.finishedAt, bytesTransferred: saved.bytesTransferred,
+      });
+      expect(saved.finishedAt).toBeTruthy();
+      expect(saved.bytesTransferred).toBeGreaterThan(0);
+
+      await exec(sourceContainer, "printf changed > /data/value.txt");
+      const prepared = await client.backups.prepareRestore(accepted.runId);
+      const restores: RestoreSnapshot[] = [];
+      let applied = false;
+      let completed = false;
+      for await (const frame of client.backups.streamRestore(prepared.restoreId, { signal: AbortSignal.timeout(120_000) })) {
+        const event = JSON.parse(frame.data);
+        if (event.type === "snapshot") {
+          restores.push(event.restore);
+          if (event.restore.status === "prepared" && !applied) {
+            applied = true;
+            await client.backups.applyRestore(prepared.restoreId, { confirmationToken: prepared.confirmationToken });
+          }
+        }
+        if (event.type === "complete") completed = true;
+      }
+      const restored = await client.backups.getRestore(prepared.restoreId);
+      expect(applied).toBe(true);
+      expect(completed).toBe(true);
+      expect(restores.at(-1)).toMatchObject({
+        status: "succeeded", finishedAt: restored.finishedAt, bytesRestored: restored.bytesRestored,
+      });
+      expect(restored.finishedAt).toBeTruthy();
+      expect(await exec(sourceContainer, "cat /data/value.txt")).toBe("original");
+    } finally {
+      backupEvents.mockRestore();
+      restoreEvents.mockRestore();
+    }
+  });
+
   it("keeps a conflicting restore prepared until the current writer finishes, then restores it exactly", async () => {
     await exec(sourceContainer, "printf first > /data/value.txt");
     const first = await client.backups.prepareRestore((await run()).id);
@@ -534,6 +589,9 @@ describeDockerE2E("backup lifecycle through the public controls", () => {
     });
     const duplicate = backupOrchestrator.execute(accepted.runId);
     try {
+      const active = await client.backups.listRuns(projectId, { active: true });
+      expect(active.some(row => row.id === accepted.runId)).toBe(true);
+      expect(active.some(row => row.id === first.id)).toBe(false);
       await delay(100);
       expect(pruned).toBe(false);
     } finally {
@@ -541,6 +599,8 @@ describeDockerE2E("backup lifecycle through the public controls", () => {
     }
     const captured = await waitForBackup(accepted.runId);
     await Promise.all([pruning, duplicate]);
+    expect((await client.backups.listRuns(projectId, { active: true })).some(row => row.id === captured.id)).toBe(false);
+    expect((await client.backups.listRuns(projectId, { active: false })).some(row => row.id === captured.id)).toBe(true);
     expect(await exec(sourceContainer, "cat /data/capture.executions")).toBe("x");
     expect((await repos.backupRun.findById(first.id))?.deletedAt).not.toBeNull();
     const hash = await exec(sourceContainer, "sha256sum /data/blob.bin");
@@ -573,6 +633,16 @@ describeDockerE2E("backup lifecycle through the public controls", () => {
     const runs = await Promise.all(all.runIds!.map((id) => waitForBackup(id)));
     expect(new Set(runs.map((row) => row.serviceId))).toEqual(new Set([serviceId, secondary.id]));
     expect(new Set(runs.map((row) => row.batchId)).size).toBe(1);
+    const history = await client.backups.listRuns(projectId, { limit: 1000 });
+    const paged: string[] = [];
+    let before: string | undefined;
+    do {
+      const page = await client.backups.listRuns(projectId, { limit: 2, ...(before && { before }) });
+      paged.push(...page.map(row => row.id));
+      before = page.length === 2 ? page.at(-1)!.id : undefined;
+      expect(paged.length).toBeLessThanOrEqual(history.length);
+    } while (before);
+    expect(paged).toEqual(history.map(row => row.id));
     await expect(
       client.backups.run(defaults.id, { serviceId: "foreign-service" }),
     ).rejects.toMatchObject({ status: 400 });

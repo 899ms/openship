@@ -282,6 +282,7 @@
       "retainDays": "Até {days} dias"
     },
     "recent": {
+      "loadOlder": "Carregar backups anteriores",
       "title": "Cópias de segurança recentes",
       "description": "Execuções recentes, resultados e opções de restauração.",
       "loading": "A carregar…",

@@ -23,7 +23,12 @@ export const UpdateBackupPolicySchema = Type.Object({
 });
 export const ListBackupRunsSchema = Type.Object({
   serviceId: Type.Optional(Type.String({ minLength: 1 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+  /** Continue before the last run in the previous page (newest first). */
+  before: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+  /** Active runs are listed separately from paginated history. */
+  active: Type.Optional(Type.Boolean()),
 });
+export type ListBackupRunsInput = Static<typeof ListBackupRunsSchema>;
 export const RunBackupPolicySchema = Type.Object({ serviceId: Type.Optional(Type.String({ minLength: 1 })) });
 export const ProtectBackupRunSchema = Type.Object({ until: Type.Optional(Type.String()), protected: Type.Optional(Type.Boolean()) });
 export const PrepareBackupRestoreSchema = Type.Object({

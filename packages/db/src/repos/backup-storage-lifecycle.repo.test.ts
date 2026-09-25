@@ -318,6 +318,27 @@ describe("atomic backup admission and storage ownership", () => {
     ]);
   });
 
+  it("distinguishes saved backups from active, failed and cancelled attempts within one organization", async () => {
+    const statuses = ["succeeded", "succeeded", "queued", "preparing", "snapshotting", "uploading", "verifying", "failed", "server_error", "cancelled"];
+    await db.insert(schema.backupRun).values(statuses.map((status, index) => ({
+      ...run(`attempt-${index}`), status, bytesTransferred: 500,
+      startedAt: new Date(`2026-09-25T11:00:${String(index).padStart(2, "0")}Z`),
+    })));
+    await db.insert(schema.backupRun).values([
+      { ...run("pruned-success"), status: "succeeded", bytesTransferred: 1000, deletedAt: new Date() },
+      { ...run("foreign-success"), organizationId: "foreign", destinationId: "foreign", projectId: null, status: "succeeded", bytesTransferred: 2000 },
+    ]);
+    expect(await runs.statsByDestination("org")).toEqual([{
+      destinationId: "storage", storedBytes: 1000, runCount: 10,
+      savedCount: 2, activeCount: 5, failedCount: 2, cancelledCount: 1,
+      lastRunAt: new Date("2026-09-25T11:00:09Z"),
+    }]);
+    await runs.transition("attempt-5", "succeeded");
+    expect(await runs.statsByDestination("org")).toMatchObject([{
+      storedBytes: 1500, savedCount: 3, activeCount: 4, failedCount: 2, cancelledCount: 1,
+    }]);
+  });
+
   it("counts a block once and keeps counting it after its original run is pruned", async () => {
     const artifact = (key: string) => ({
       key,

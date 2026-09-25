@@ -461,10 +461,14 @@ describe("project backup workspace", () => {
     state.set(second.id, { ...second, status: "failed", errorMessage: "Storage unavailable" });
     const calls = api.runs.mock.calls.length;
     await open(true);
-    expect(api.runs.mock.calls.length).toBeGreaterThan(calls);
+    // The live saved rows update the table without re-fetching its older,
+    // still-queued history response or discarding expanded pages.
+    expect(api.runs).toHaveBeenCalledTimes(calls);
+    expect(document.querySelector("table")?.textContent).toContain("Storage unavailable");
+    expect(document.querySelector("table")?.textContent).toContain(b.recent.restore);
     expect(live.textContent).toContain("Storage unavailable");
     await click(b.live.dismiss);
-    expect(document.querySelector(`section[aria-label="${b.live.title}"]`)).toBeNull();
+    expect(document.querySelector(`section[aria-label="${b.live.title}"]`)?.hasAttribute("hidden")).toBe(true);
   });
 
   it("adds storage directly in the project and selects it for the next policy", async () => {
@@ -578,7 +582,7 @@ describe("project backup workspace", () => {
     expect(document.querySelector("aside")?.textContent).not.toContain(m.verifiedBadge);
   });
 
-  it("submits a backup only once and refreshes history when its live run completes", async () => {
+  it("submits a backup only once and updates history in place when its live run completes", async () => {
     let resolve!: (value: { data: { runId: string } }) => void;
     api.policies.mockResolvedValue({ data: [policy()] });
     api.runNow.mockReturnValue(
@@ -599,10 +603,10 @@ describe("project backup workspace", () => {
     api.runs.mockResolvedValue({ data: [completed] });
     api.stream.mockReturnValue({ run: completed, connected: false, error: null });
     await open(true);
-    expect(api.runs).toHaveBeenCalledTimes(callsBeforeComplete + 1);
+    expect(api.runs).toHaveBeenCalledTimes(callsBeforeComplete);
     expect(document.querySelector("table")?.textContent).toContain(b.recent.restore);
     await open(true);
-    expect(api.runs).toHaveBeenCalledTimes(callsBeforeComplete + 1);
+    expect(api.runs).toHaveBeenCalledTimes(callsBeforeComplete);
   });
 });
 

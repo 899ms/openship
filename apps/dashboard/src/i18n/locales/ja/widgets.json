@@ -102,7 +102,7 @@
       "phase": {
         "queued": "ワーカーを待機中…",
         "preparing": "宛先とサービスを解決中…",
-        "snapshotting": "アーティファクトを生成中（プリフック実行中）…",
+        "snapshotting": "データ取得を準備中…",
         "uploading": "宛先へストリーミング中…",
         "verifying": "マニフェストを書き込み中…"
       },

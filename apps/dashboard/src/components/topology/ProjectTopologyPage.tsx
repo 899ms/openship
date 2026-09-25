@@ -1,21 +1,12 @@
 "use client";
 
-import { Icon as UiIcon } from "@repo/ui/icons";
-
 import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
+import { TopologySkeleton } from "./TopologySkeleton";
 
 const ProjectTopology = dynamic(() => import("./ProjectTopology"), {
   ssr: false,
-  loading: () => (
-    <div
-      className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
-      role="status"
-    >
-      <UiIcon name="topology" className="size-5" />
-      Loading project topology…
-    </div>
-  ),
+  loading: () => <TopologySkeleton withHeader />,
 });
 
 export function ProjectTopologyPage(props: {

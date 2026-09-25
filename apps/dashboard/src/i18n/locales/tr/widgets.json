@@ -102,7 +102,7 @@
       "phase": {
         "queued": "Uygun bir worker bekleniyor…",
         "preparing": "Hedef ve servis çözümleniyor…",
-        "snapshotting": "Yedek çıktıları oluşturuluyor (ön işlem çalışıyor)…",
+        "snapshotting": "Veri yedekleme hazırlanıyor…",
         "uploading": "Hedefe aktarılıyor…",
         "verifying": "Manifest yazılıyor…"
       },

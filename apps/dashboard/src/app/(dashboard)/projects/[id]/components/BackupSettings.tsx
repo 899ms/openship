@@ -17,10 +17,12 @@ import DropdownMenu, { type MenuAction } from "@/components/ui/DropdownMenu";
 import { CreateDestinationModal } from "@/components/backup/CreateDestinationModal";
 import { PolicyEditor } from "@/components/backup/PolicyEditor";
 import { BackupRunCard } from "@/components/backup/BackupRunCard";
+import { BackupStatusChip } from "@/components/backup/BackupStatusChip";
 import { RestoreWizard } from "@/components/backup/RestoreWizard";
-import { EDITABLE_KINDS, KIND_ICONS, kindLabel } from "@/components/backup/destinationDisplay";
+import { EDITABLE_KINDS, KIND_ICONS, kindLabel, DestinationVerificationBadge } from "@/components/backup/destinationDisplay";
 import { partsFromCron } from "@/lib/backup-schedule";
 import { formatBytes } from "@/lib/formatBytes";
+import { isBackupRunning, latestBackupRun, mergeBackupRuns } from "@/lib/backup-run-state";
 
 type BackupCopy = ReturnType<typeof useI18n>["t"]["projectSettings"]["backup"];
 type BackupData = {
@@ -28,11 +30,20 @@ type BackupData = {
   destinations: BackupDestinationSummary[];
   policies: BackupPolicy[];
   runs: BackupRun[];
+  historyIds: string[];
+  hasMore: boolean;
+  before: string | null;
 };
 type PolicyScope = { serviceId: string | null; serviceName: string; serviceImage?: string | null };
-const EMPTY: Omit<BackupData, "projectId"> = { destinations: [], policies: [], runs: [] };
-const isRunning = (run: BackupRun) =>
-  !["succeeded", "failed", "cancelled", "server_error"].includes(run.status);
+const HISTORY_PAGE_SIZE = 10;
+const EMPTY: Omit<BackupData, "projectId"> = {
+  destinations: [],
+  policies: [],
+  runs: [],
+  historyIds: [],
+  hasMore: false,
+  before: null,
+};
 
 export function BackupSettings(): React.JSX.Element {
   const { projectData, servicesData } = useProjectSettings();
@@ -48,6 +59,9 @@ export function BackupSettings(): React.JSX.Element {
   const { destinations, policies, runs } = current ?? EMPTY;
   const [refreshing, setRefreshing] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const moreRequest = useRef<symbol | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const requestVersion = useRef(0);
   const pendingActions = useRef(new Set<string>());
@@ -69,21 +83,38 @@ export function BackupSettings(): React.JSX.Element {
   const reload = useCallback(async () => {
     if (activeProject.current !== projectId) return;
     const version = ++requestVersion.current;
+    moreRequest.current = null;
+    setLoadingMore(false);
+    setHistoryError(null);
     setRefreshing(true);
     setLoadError(null);
     try {
-      const [destinations, policies, runs] = await Promise.all([
+      const [destinations, policies, history, active] = await Promise.all([
         backupDestinationsApi.list(),
         backupsApi.listPolicies(projectId),
-        backupsApi.listRuns(projectId, { limit: 25 }),
+        backupsApi.listRuns(projectId, { limit: HISTORY_PAGE_SIZE + 1 }),
+        backupsApi.listRuns(projectId, { active: true, limit: 1000 }),
       ]);
       if (version !== requestVersion.current) return;
-      setData({
+      const page = history.data.slice(0, HISTORY_PAGE_SIZE);
+      const received = mergeBackupRuns(page, active.data);
+      setData((previous) => ({
         projectId,
         destinations: destinations.data,
         policies: policies.data,
-        runs: runs.data,
-      });
+        runs: received.map(
+          (row) =>
+            latestBackupRun(
+              previous?.projectId === projectId
+                ? (previous.runs.find((run) => run.id === row.id) ?? null)
+                : null,
+              row,
+            )!,
+        ),
+        historyIds: page.map((run) => run.id),
+        hasMore: history.data.length > HISTORY_PAGE_SIZE,
+        before: page.at(-1)?.id ?? null,
+      }));
     } catch (error) {
       if (version === requestVersion.current)
         setLoadError(getApiErrorMessage(error, b.overview.loadFailed));
@@ -91,6 +122,64 @@ export function BackupSettings(): React.JSX.Element {
       if (version === requestVersion.current) setRefreshing(false);
     }
   }, [projectId, b.overview.loadFailed]);
+
+  const loadOlder = async () => {
+    if (refreshing || moreRequest.current || !current?.hasMore || !current.before) return;
+    const token = Symbol();
+    moreRequest.current = token;
+    const version = requestVersion.current;
+    const before = current.before;
+    setLoadingMore(true);
+    setHistoryError(null);
+    try {
+      const response = await backupsApi.listRuns(projectId, {
+        limit: HISTORY_PAGE_SIZE + 1,
+        before,
+      });
+      if (activeProject.current !== projectId || version !== requestVersion.current) return;
+      const page = response.data.slice(0, HISTORY_PAGE_SIZE);
+      setData((previous) =>
+        previous?.projectId === projectId && previous.before === before
+          ? {
+              ...previous,
+              runs: mergeBackupRuns(previous.runs, page),
+              historyIds: [...new Set([...previous.historyIds, ...page.map((run) => run.id)])],
+              hasMore: response.data.length > HISTORY_PAGE_SIZE,
+              before: page.at(-1)?.id ?? null,
+            }
+          : previous,
+      );
+    } catch (error) {
+      if (activeProject.current === projectId && version === requestVersion.current)
+        setHistoryError(getApiErrorMessage(error, b.overview.loadFailed));
+    } finally {
+      if (moreRequest.current === token) {
+        moreRequest.current = null;
+        setLoadingMore(false);
+      }
+    }
+  };
+
+  const updateRun = useCallback(
+    (run: BackupRun) => {
+      if (activeProject.current !== projectId) return;
+      setData((previous) => {
+        if (previous?.projectId !== projectId) return previous;
+        const existing = previous.runs.find((row) => row.id === run.id);
+        const latest = latestBackupRun(existing ?? null, run)!;
+        if (existing === latest) return previous;
+        return {
+          ...previous,
+          runs: existing
+            ? previous.runs.map((row) => (row.id === run.id ? latest : row))
+            : [latest, ...previous.runs],
+          // A newly accepted run may reach its stream before the history request.
+          historyIds: existing ? previous.historyIds : [run.id, ...previous.historyIds],
+        };
+      });
+    },
+    [projectId],
+  );
 
   useEffect(() => {
     activeProject.current = projectId;
@@ -105,6 +194,7 @@ export function BackupSettings(): React.JSX.Element {
     return () => {
       activeProject.current = null;
       requestVersion.current += 1;
+      moreRequest.current = null;
     };
   }, [reload, projectId]);
 
@@ -152,8 +242,12 @@ export function BackupSettings(): React.JSX.Element {
       async () => {
         const response = await backupsApi.runNow(policy.id);
         if (activeProject.current !== projectId) return;
-        setActiveRunIds(previous => [...new Set([...previous, ...(response.data.runIds ?? [response.data.runId])])]);
+        setActiveRunIds((previous) => [
+          ...new Set([...previous, ...(response.data.runIds ?? [response.data.runId])]),
+        ]);
         await reload();
+        if (activeProject.current === projectId)
+          requestAnimationFrame(() => activityRef.current?.scrollIntoView?.({ block: "nearest" }));
       },
       b.toast.runFailed,
     );
@@ -194,10 +288,12 @@ export function BackupSettings(): React.JSX.Element {
     if (serviceId && !scopes.some((scope) => scope.serviceId === serviceId))
       scopes.push({ serviceId, serviceName: b.overview.serviceBackup });
   }
-  const recentRuns = useMemo(
-    () => [...runs].sort((a, z) => Date.parse(z.startedAt) - Date.parse(a.startedAt)),
-    [runs],
-  );
+  const recentRuns = useMemo(() => {
+    const shown = new Set(current?.historyIds);
+    return runs
+      .filter((run) => shown.has(run.id))
+      .sort((a, z) => Date.parse(z.startedAt) - Date.parse(a.startedAt));
+  }, [runs, current?.historyIds]);
   const lastSuccess = recentRuns.find((run) => run.status === "succeeded");
   const scheduledCount = policies.filter(
     (policy) => policy.enabled && policy.cronExpression,
@@ -205,10 +301,13 @@ export function BackupSettings(): React.JSX.Element {
   const projectPolicyEnabled = policies.some(
     (policy) => policy.serviceId === null && policy.enabled,
   );
-  const liveRunIds = [...new Set([
-    ...activeRunIds,
-    ...recentRuns.filter((run) => isRunning(run)).map((run) => run.id),
-  ])].filter(id => !dismissedRunIds.has(id));
+  const runsById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs]);
+  const trackedRunIds = [
+    ...new Set([...activeRunIds, ...runs.filter(isBackupRunning).map((run) => run.id)]),
+  ].filter(
+    (id) => !dismissedRunIds.has(id) || !runsById.has(id) || isBackupRunning(runsById.get(id)!),
+  );
+  const liveRunIds = trackedRunIds.filter((id) => !dismissedRunIds.has(id));
   const scopeName = (serviceId: string | null) =>
     scopes.find((scope) => scope.serviceId === serviceId)?.serviceName ?? b.overview.serviceBackup;
 
@@ -276,58 +375,6 @@ export function BackupSettings(): React.JSX.Element {
           </dl>
           <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0 space-y-5">
-              {liveRunIds.length > 0 && (
-                <section ref={activityRef} className="space-y-3" aria-label={b.live.title}>
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-foreground">{b.live.title}</h3>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setDismissedRunIds((previous) => new Set([...previous, ...liveRunIds]));
-                        setActiveRunIds([]);
-                      }}
-                    >
-                      {b.live.dismiss}
-                    </Button>
-                  </div>
-                  {liveRunIds.map((runId) => (
-                    <BackupRunCard key={runId} runId={runId}
-                      initial={runs.find((run) => run.id === runId)} onComplete={reload} />
-                  ))}
-                </section>
-              )}
-              <section
-                className="rounded-2xl border border-border/50 bg-card"
-                aria-label={b.services.title}
-              >
-                <SectionHeading title={b.services.title} description={b.services.description} />
-                <div className="divide-y divide-border/40">
-                  {scopes.flatMap((scope) => {
-                    const scopedPolicies = policiesByService.get(scope.serviceId) ?? [];
-                    return (scopedPolicies.length ? scopedPolicies : [null]).map((policy) => (
-                      <PolicyRow
-                        key={policy?.id ?? scope.serviceId ?? "project"}
-                        scope={scope}
-                        policy={policy}
-                        destination={destinations.find(
-                          (destination) => destination.id === policy?.destinationId,
-                        )}
-                        projectPolicyEnabled={projectPolicyEnabled}
-                        busy={
-                          !!policy &&
-                          (busyIds.has(policy.id) ||
-                            runs.some((run) => run.policyId === policy.id && isRunning(run)))
-                        }
-                        onEdit={() => setEditingPolicy({ ...scope, existing: policy })}
-                        onRun={() => {
-                          if (policy) void runNow(policy);
-                        }}
-                      />
-                    ));
-                  })}
-                </div>
-              </section>
               <section
                 className="overflow-hidden rounded-2xl border border-border/50 bg-card"
                 aria-label={b.recent.title}
@@ -382,7 +429,7 @@ export function BackupSettings(): React.JSX.Element {
                                   )}
                                 </div>
                                 <div className="mt-1.5">
-                                  <StatusChip status={run.status} />
+                                  <BackupStatusChip status={run.status} />
                                 </div>
                                 {run.errorMessage && (
                                   <p
@@ -453,7 +500,14 @@ export function BackupSettings(): React.JSX.Element {
                                     variant="ghost"
                                     size="icon"
                                     onClick={() => {
-                                      setActiveRunIds([run.id]);
+                                      setActiveRunIds((previous) => [
+                                        ...new Set([...previous, run.id]),
+                                      ]);
+                                      setDismissedRunIds((previous) => {
+                                        const next = new Set(previous);
+                                        next.delete(run.id);
+                                        return next;
+                                      });
                                       requestAnimationFrame(() => {
                                         activityRef.current?.scrollIntoView?.({ block: "nearest" });
                                       });
@@ -472,10 +526,62 @@ export function BackupSettings(): React.JSX.Element {
                     </table>
                   </div>
                 )}
+                {(current.hasMore || historyError) && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                    {historyError && (
+                      <p role="alert" className="text-sm text-danger">
+                        {historyError}
+                      </p>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={loadingMore || refreshing}
+                      onClick={() => void loadOlder()}
+                    >
+                      {loadingMore && <Icon name="spinner" className="size-3.5 animate-spin" />}
+                      {loadingMore ? b.recent.loading : b.recent.loadOlder}
+                    </Button>
+                  </div>
+                )}
               </section>
+              {trackedRunIds.length > 0 && (
+                <section
+                  ref={activityRef}
+                  className="space-y-3"
+                  aria-label={b.live.title}
+                  hidden={liveRunIds.length === 0}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-foreground">{b.live.title}</h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setDismissedRunIds((previous) => new Set([...previous, ...liveRunIds]));
+                      }}
+                    >
+                      {b.live.dismiss}
+                    </Button>
+                  </div>
+                  {trackedRunIds.map((runId) => {
+                    const run = runsById.get(runId);
+                    return (
+                      <BackupRunCard
+                        key={runId}
+                        runId={runId}
+                        initial={run}
+                        visible={!dismissedRunIds.has(runId)}
+                        serviceName={run ? scopeName(run.serviceId) : undefined}
+                        onUpdate={updateRun}
+                      />
+                    );
+                  })}
+                </section>
+              )}
             </div>
             <aside
-              className="order-first min-w-0 rounded-2xl border border-border/50 bg-card xl:order-last"
+              className="min-w-0 rounded-2xl border border-border/50 bg-card"
               aria-label={b.destinations.title}
             >
               <SectionHeading
@@ -580,33 +686,7 @@ export function BackupSettings(): React.JSX.Element {
                           />
                         </div>
                         <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
-                          <span
-                            className={`inline-flex items-center gap-1 ${destination.lastVerifyError ? "text-danger" : destination.lastVerifiedAt ? "text-success" : "text-muted-foreground"}`}
-                            title={
-                              destination.lastVerifyError ??
-                              (destination.lastVerifiedAt
-                                ? interpolate(m.lastVerified, {
-                                    date: formatDate(destination.lastVerifiedAt, locale),
-                                  })
-                                : undefined)
-                            }
-                          >
-                            <Icon
-                              name={
-                                destination.lastVerifyError
-                                  ? "x-circle"
-                                  : destination.lastVerifiedAt
-                                    ? "check-circle"
-                                    : "circle"
-                              }
-                              className="size-3"
-                            />
-                            {destination.lastVerifyError
-                              ? m.failedBadge
-                              : destination.lastVerifiedAt
-                                ? m.verifiedBadge
-                                : m.notVerifiedBadge}
-                          </span>
+                          <DestinationVerificationBadge destination={destination} badge={false} />
                           {used && (
                             <span className="text-muted-foreground">{b.destinations.inUse}</span>
                           )}
@@ -634,6 +714,37 @@ export function BackupSettings(): React.JSX.Element {
               </div>
             </aside>
           </div>
+          <section
+            className="rounded-2xl border border-border/50 bg-card"
+            aria-label={b.services.title}
+          >
+            <SectionHeading title={b.services.title} description={b.services.description} />
+            <div className="divide-y divide-border/40">
+              {scopes.flatMap((scope) => {
+                const scopedPolicies = policiesByService.get(scope.serviceId) ?? [];
+                return (scopedPolicies.length ? scopedPolicies : [null]).map((policy) => (
+                  <PolicyRow
+                    key={policy?.id ?? scope.serviceId ?? "project"}
+                    scope={scope}
+                    policy={policy}
+                    destination={destinations.find(
+                      (destination) => destination.id === policy?.destinationId,
+                    )}
+                    projectPolicyEnabled={projectPolicyEnabled}
+                    busy={
+                      !!policy &&
+                      (busyIds.has(policy.id) ||
+                        runs.some((run) => run.policyId === policy.id && isBackupRunning(run)))
+                    }
+                    onEdit={() => setEditingPolicy({ ...scope, existing: policy })}
+                    onRun={() => {
+                      if (policy) void runNow(policy);
+                    }}
+                  />
+                ));
+              })}
+            </div>
+          </section>
         </>
       )}
       {destinationEditor && (
@@ -840,23 +951,4 @@ function formatDate(value: string, locale: string) {
   return Number.isNaN(date.getTime())
     ? "—"
     : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
-function StatusChip({ status }: { status: BackupRun["status"] }) {
-  const { t } = useI18n();
-  const labels = t.widgets.backup.runCard.status;
-  const label = status === "server_error" ? labels.serverError : labels[status];
-  const success = status === "succeeded";
-  const failure = status === "failed" || status === "server_error";
-  const active = !success && !failure && status !== "cancelled";
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 text-[11px] ${success ? "text-success" : failure ? "text-danger" : active ? "text-info" : "text-muted-foreground"}`}
-    >
-      <Icon
-        name={success ? "check-circle" : failure ? "x-circle" : active ? "spinner" : "circle"}
-        className={`size-3 ${active ? "animate-spin" : ""}`}
-      />
-      {label}
-    </span>
-  );
 }

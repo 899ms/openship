@@ -282,6 +282,7 @@
       "retainDays": "Bis zu {days} Tage"
     },
     "recent": {
+      "loadOlder": "Ältere Backups laden",
       "title": "Letzte Backups",
       "description": "Letzte Sicherungen, Ergebnisse und Wiederherstellungsoptionen.",
       "loading": "Wird geladen…",
