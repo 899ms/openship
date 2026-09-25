@@ -587,6 +587,16 @@ function ComposeDeploymentBody({
   const tabPrefix = React.useId();
   const selectedTab = terminalTabs.find(tab => tab.id === activeTab) ?? terminalTabs[0];
   const selectedTabId = selectedTab.id;
+  // Prepare carries the shared orchestration output through the whole deployment.
+  // Reflect that workflow's status; an image being built does not finish this stream.
+  const deploymentLabels = t.importProject.deploymentProcessing.status;
+  const prepareIndicator = {
+    building: { status: "building", label: deploymentLabels.building },
+    deploying: { status: "deploying", label: t.importProject.serviceStatus.deploying },
+    ready: { status: "running", label: deploymentLabels.ready },
+    failed: { status: "failed", label: deploymentLabels.failed },
+    cancelled: { status: "stopped", label: deploymentLabels.cancelled },
+  }[deploymentStatus];
   const usesRuntimeLogs = (name: string) => name !== PREPARE_TAB && !!projectId && !!deploymentId &&
     !!serviceIdByName.get(name) && serviceLogSource({
       deploymentStatus, decisionPending, isCurrentDeployment,
@@ -608,16 +618,19 @@ function ComposeDeploymentBody({
             onChange={onTabChange}
             idPrefix={tabPrefix}
             ariaLabel={cd.logsTitle}
-            orientation="vertical"
+            columns={2}
             className="max-h-80"
             tabs={terminalTabs.map(tab => {
-              const status = serviceStatusByName.get(tab.id);
+              const status = serviceStatusByName.get(tab.id) ?? "pending";
+              const indicator = tab.id === PREPARE_TAB
+                ? prepareIndicator
+                : { status, label: t.importProject.serviceStatus[status] };
               return {
                 key: tab.id,
                 label: tab.label,
-                leading: tab.id === PREPARE_TAB ? <UiIcon name="folder-code" className="size-4 shrink-0" aria-hidden /> : (
+                leading: (
                   <span className="inline-flex size-4 shrink-0 items-center justify-center">
-                    <ServiceStatusIndicator status={status ?? "pending"} label={t.importProject.serviceStatus[status ?? "pending"]} />
+                    <ServiceStatusIndicator {...indicator} />
                   </span>
                 ),
               };
@@ -745,6 +758,7 @@ function ComposeLogTerminal({
       aria-hidden={!active}
     >
       <BuildTerminal
+        active={active}
         onReady={(terminal) => {
           terminalRef.current = terminal;
           setReady(true);

@@ -13,8 +13,8 @@ import { useTheme } from "@/components/theme-provider";
 import { api } from "@/lib/api";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import { TerminalCardShell } from "@/components/terminal/TerminalCardShell";
+import { TerminalSearch } from "@/components/terminal/TerminalSearch";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 interface TerminalLogsProps {
     projectId: string;
@@ -628,74 +628,15 @@ export const TerminalLogs: React.FC<TerminalLogsProps> = ({
             name={projectName || t.projectDetail.logs.terminal.fallbackName}
             title={title}
             toolbar={
-                <div className="flex min-w-0 items-center gap-2">
-                    <div className="relative min-w-0 flex-1">
-                        <UiIcon name="search" className="absolute start-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
-                        <Input
-                            type="text"
-                            variant="filled"
-                            placeholder={t.projectDetail.logs.terminal.searchPlaceholder}
-                            aria-label={t.projectDetail.logs.terminal.searchPlaceholder}
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    if (e.shiftKey) {
-                                        handleSearchPrevious();
-                                    } else {
-                                        handleSearchNext();
-                                    }
-                                }
-                            }}
-                            className="h-9 ps-9 pe-9"
-                        />
-                        {searchQuery && (
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                    setSearchQuery("");
-                                    setHasMatches(false);
-                                }}
-                                aria-label={t.projectDetail.logs.actions.clear}
-                                className="absolute end-1 top-1/2 size-7 -translate-y-1/2 rounded-lg"
-                            >
-                                <UiIcon name="close" className="w-3.5 h-3.5" />
-                            </Button>
-                        )}
-                    </div>
-
-                    {searchQuery && (
-                        <div className="flex items-center gap-1">
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                size="icon"
-                                onClick={handleSearchPrevious}
-                                disabled={!hasMatches || isSearching}
-                                className="size-9"
-                                title={t.projectDetail.logs.terminal.previousMatch}
-                                aria-label={t.projectDetail.logs.terminal.previousMatch}
-                            >
-                                <UiIcon name="chevron-up" className="w-3.5 h-3.5 text-muted-foreground" />
-                            </Button>
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                size="icon"
-                                onClick={handleSearchNext}
-                                disabled={!hasMatches || isSearching}
-                                className="size-9"
-                                title={t.projectDetail.logs.terminal.nextMatch}
-                                aria-label={t.projectDetail.logs.terminal.nextMatch}
-                            >
-                                <UiIcon name="chevron-down" className="w-3.5 h-3.5 text-muted-foreground" />
-                            </Button>
-                        </div>
-                    )}
-                </div>
+                <TerminalSearch
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    onNext={handleSearchNext}
+                    onPrevious={handleSearchPrevious}
+                    hasMatches={hasMatches}
+                    searching={isSearching}
+                    disabled={!terminalReady}
+                />
             }
             status={
                 <>

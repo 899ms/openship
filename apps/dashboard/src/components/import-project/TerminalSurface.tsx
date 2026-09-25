@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import type { ITheme } from "@xterm/xterm";
+import type { ITheme, Terminal } from "@xterm/xterm";
 import { useTheme } from "@/components/theme-provider";
+import { useLogTerminal } from "@/components/terminal/LogTerminalContext";
 import "@xterm/xterm/css/xterm.css";
 
 type TerminalTheme = "light" | "dark";
@@ -13,6 +14,8 @@ interface TerminalSurfaceProps {
   onReady?: (terminal: any) => void;
   className?: string;
   theme?: TerminalTheme;
+  /** Only the visible terminal supplies its containing log panel's actions. */
+  active?: boolean;
 }
 
 /** xterm paints its own surface, so resolve the app's CSS tokens for it too.
@@ -69,11 +72,14 @@ const TerminalSurface: React.FC<TerminalSurfaceProps> = ({
   onReady,
   className = "",
   theme = "light",
+  active = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const internalTerminalRef = useRef<any | null>(null);
   const targetRef = terminalRef ?? internalTerminalRef;
   const { resolvedTheme } = useTheme();
+  const [readyTerminal, setReadyTerminal] = useState<Terminal | null>(null);
+  useLogTerminal(readyTerminal, active);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -105,6 +111,7 @@ const TerminalSurface: React.FC<TerminalSurfaceProps> = ({
       terminal.loadAddon(new WebLinksAddon());
       terminal.open(containerRef.current);
       targetRef.current = terminal;
+      setReadyTerminal(terminal);
 
       const containerElement = containerRef.current;
       const fit = () => {

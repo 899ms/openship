@@ -26,8 +26,8 @@ export default function BuildSkeleton() {
             </div>
           }
           navigation={
-            <div className="space-y-3 rounded-2xl bg-card p-5 motion-safe:animate-pulse" aria-hidden>
-              {[1, 2, 3].map(key => <div key={key} className="h-8 w-full rounded-lg bg-muted" />)}
+            <div className="grid grid-cols-2 gap-3 rounded-2xl bg-card p-5 motion-safe:animate-pulse" aria-hidden>
+              {[1, 2, 3, 4, 5, 6].map(key => <div key={key} className="h-8 rounded-lg bg-muted" />)}
             </div>
           }
         >
