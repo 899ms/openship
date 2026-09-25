@@ -151,9 +151,11 @@ describe("deployment log controls", () => {
   });
 
   it("reports clipboard failure without claiming the logs were copied", async () => {
-    mocks.copy.mockRejectedValueOnce(new Error("Clipboard denied"));
     await render();
     await act(async () => button(copy.actions.copy).click());
+    expect(button(copy.actions.copied)).not.toBeNull();
+    mocks.copy.mockRejectedValueOnce(new Error("Clipboard denied"));
+    await act(async () => button(copy.actions.copied).click());
     expect(mocks.toast).toHaveBeenCalledWith(baseDictionary.projectSettings.advanced.projectMenu.copyFailed, "error");
     expect(button(copy.actions.copied)).toBeNull();
   });
